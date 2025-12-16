@@ -28,23 +28,36 @@ export const searchLeads = async (
   } : undefined;
 
   const prompt = `
-    Atue como um especialista em extração de dados comerciais (Lead Scraper).
+    Atue como um sistema de Extração de Leads em Massa (Bulk Lead Scraper).
     
-    Tarefa: Encontre empresas do nicho "${niche}" localizadas em "${location}".
+    OBJETIVO: Gerar uma lista sólida de até 100 empresas do nicho "${niche}" localizadas em "${location}".
     
-    Objetivo Principal: Extrair o NOME e o NÚMERO DE TELEFONE de cada empresa encontrada.
+    INSTRUÇÕES CRÍTICAS:
+    1. QUANTIDADE: Busque profundamente nos dados do Google Maps e Busca para listar entre 50 a 100 resultados relevantes. Não tente exceder 100 para garantir a integridade dos dados.
+    2. PRIORIDADE: Foque estritamente em empresas que possuam NÚMERO DE TELEFONE listado.
+    3. FORMATO: Mantenha estritamente o formato abaixo para facilitar a importação.
     
-    Instruções de Formatação:
-    Liste cada empresa encontrada separada estritamente por uma linha contendo apenas "---".
-    Para cada empresa, use o seguinte formato (se a informação não estiver disponível, escreva "N/A"):
+    Separador entre empresas: "---"
     
+    Formato de cada item:
     Nome: [Nome da Empresa]
     Telefone: [Número de Telefone]
+    Email: [Email se disponível, senão N/A]
     Endereço: [Endereço Completo]
-    Avaliação: [Nota/Rating se houver]
-    Site: [Website se houver]
+    Avaliação: [Nota/Rating]
+    Site: [Website]
     
-    Tente encontrar entre 5 a 10 resultados relevantes. Priorize resultados com números de telefone.
+    Exemplo de saída esperada:
+    
+    Nome: Padaria A
+    Telefone: (11) 9999-9999
+    Email: contato@padariaa.com.br
+    Endereço: Rua X, 123
+    Avaliação: 4.5
+    Site: www.padariaa.com.br
+    ---
+    Nome: Padaria B
+    ...
   `;
 
   try {
@@ -54,7 +67,7 @@ export const searchLeads = async (
       config: {
         tools: tools,
         toolConfig: toolConfig,
-        temperature: 0.2, // Low temperature for factual extraction
+        temperature: 0.4, 
       }
     });
 

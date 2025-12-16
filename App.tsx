@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { searchLeads } from './services/geminiService';
 import { BusinessLead, SearchState } from './types';
 import { LeadCard } from './components/LeadCard';
@@ -13,19 +13,18 @@ export default function App() {
   const [leads, setLeads] = useState<BusinessLead[]>([]);
   const [rawResponse, setRawResponse] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<{title: string, uri: string}[]>([]);
+
+  // Timer ref to clear intervals if component unmounts
+  const timerRef = useRef<number | null>(null);
 
   const handleLocate = () => {
     setSearchState(prev => ({ ...prev, isLocating: true }));
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          // Use coordinates in search if strictly needed, 
-          // or just autofill a generic "Minha Localização" text which we will process in the service 
-          // by passing coords to toolConfig. 
-          // For UX, we stick to text, but we save coords in a ref if we wanted to be more complex.
-          // Here we just put "Minha Localização Atual" and the service will check coords availability.
           setSearchState(prev => ({ 
             ...prev, 
             location: 'Minha localização atual', 
@@ -45,7 +44,6 @@ export default function App() {
   };
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
-    // Split by the delimiter defined in the prompt
     const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 10);
     
     return chunks.map((chunk, index) => {
@@ -59,6 +57,7 @@ export default function App() {
         id: `lead-${index}-${Date.now()}`,
         name: getField('Nome'),
         phone: getField('Telefone'),
+        email: getField('Email'),
         address: getField('Endereço'),
         rating: getField('Avaliação'),
         website: getField('Site')
@@ -71,15 +70,27 @@ export default function App() {
     if (!searchState.niche || !searchState.location) return;
 
     setLoading(true);
+    setProgress(0);
     setError(null);
     setLeads([]);
     setSources([]);
+
+    // Simula uma barra de progresso baseada no tempo médio de resposta (30-60s)
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = window.setInterval(() => {
+      setProgress((oldProgress) => {
+        if (oldProgress >= 95) {
+          return 95; // Estaciona em 95% até a resposta chegar
+        }
+        const increment = Math.random() * 2;
+        return Math.min(oldProgress + increment, 95);
+      });
+    }, 500);
 
     try {
       let lat: number | undefined;
       let lng: number | undefined;
 
-      // Simple geolocation check if user typed "Minha localização" or similar
       if (searchState.location.toLowerCase().includes('minha localização')) {
         try {
            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -88,17 +99,21 @@ export default function App() {
            lat = pos.coords.latitude;
            lng = pos.coords.longitude;
         } catch (e) {
-          // Ignore location error, fallback to text search (Gemini handles it gracefully usually)
+          // Ignore location error
         }
       }
 
       const response = await searchLeads(searchState.niche, searchState.location, lat, lng);
       
+      if (timerRef.current) clearInterval(timerRef.current);
+      setProgress(100);
+
+      await new Promise(r => setTimeout(r, 500));
+
       setRawResponse(response.rawText);
       const parsedLeads = parseLeadsFromText(response.rawText);
       setLeads(parsedLeads);
 
-      // Extract unique sources
       const extractedSources: {title: string, uri: string}[] = [];
       response.groundingChunks.forEach(chunk => {
         if (chunk.web) {
@@ -108,7 +123,6 @@ export default function App() {
            extractedSources.push({ title: chunk.maps.title || 'Google Maps', uri: chunk.maps.uri });
         }
       });
-      // Remove duplicates
       const uniqueSources = extractedSources.filter((v,i,a)=>a.findIndex(v2=>(v2.uri===v.uri))===i);
       setSources(uniqueSources);
 
@@ -117,11 +131,19 @@ export default function App() {
       }
 
     } catch (err: any) {
+      if (timerRef.current) clearInterval(timerRef.current);
       setError(err.message || "Ocorreu um erro desconhecido.");
     } finally {
       setLoading(false);
     }
   }, [searchState]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
@@ -157,8 +179,9 @@ export default function App() {
                 value={searchState.niche}
                 onChange={(e) => setSearchState(s => ({ ...s, niche: e.target.value }))}
                 placeholder="Ex: Dentistas, Pizzaria, Encanador"
-                className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all disabled:opacity-50"
                 required
+                disabled={loading}
               />
             </div>
 
@@ -172,13 +195,15 @@ export default function App() {
                   value={searchState.location}
                   onChange={(e) => setSearchState(s => ({ ...s, location: e.target.value }))}
                   placeholder="Ex: São Paulo, Centro, RJ"
-                  className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all disabled:opacity-50"
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={handleLocate}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-400 transition-colors"
+                  disabled={loading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
                   title="Usar minha localização"
                 >
                   {searchState.isLocating ? (
@@ -209,7 +234,6 @@ export default function App() {
                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                      </svg>
-                     <span>Buscando...</span>
                    </>
                 ) : (
                   <>
@@ -222,6 +246,25 @@ export default function App() {
               </button>
             </div>
           </form>
+
+          {/* Progress Bar */}
+          {loading && (
+            <div className="mt-6 space-y-2 animate-pulse">
+              <div className="flex justify-between text-xs text-gray-400 uppercase tracking-wide font-semibold">
+                <span>Processando dados...</span>
+                <span>{Math.round(progress)}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out" 
+                  style={{ width: `${progress}%` }}
+                ></div>
+              </div>
+              <p className="text-center text-sm text-gray-500 pt-2">
+                A extração em massa pode levar cerca de 1 minuto. Por favor, aguarde.
+              </p>
+            </div>
+          )}
         </section>
 
         {/* Error Message */}
@@ -235,13 +278,13 @@ export default function App() {
         )}
 
         {/* Results Area */}
-        {leads.length > 0 && (
+        {leads.length > 0 && !loading && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
               <h2 className="text-2xl font-bold text-white">
                 Resultados Encontrados ({leads.length})
               </h2>
-              <ExportButton leads={leads} />
+              <ExportButton leads={leads} niche={searchState.niche} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -273,7 +316,7 @@ export default function App() {
         )}
 
         {/* Fallback for raw text if parsing failed but we have text */}
-        {leads.length === 0 && rawResponse && !loading && (
+        {leads.length === 0 && rawResponse && !loading && !error && (
            <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 mt-6">
              <h3 className="text-lg font-bold mb-4 text-yellow-400">Resposta Bruta da IA</h3>
              <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono overflow-x-auto">
