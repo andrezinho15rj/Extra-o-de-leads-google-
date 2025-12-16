@@ -1,0 +1,7 @@
+{
+  "name": "Extractor de Leads AI",
+  "description": "Sistema de extração de contatos comerciais utilizando Google Search e Google Maps via Gemini API.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
