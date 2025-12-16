@@ -7,12 +7,12 @@ export const searchLeads = async (
   niche: string, 
   location: string,
   userLat?: number,
-  userLng?: number
+  userLng?: number,
+  searchFocus: string = "Geral e principais resultados"
 ): Promise<SearchResponse> => {
   
-  const modelId = "gemini-2.5-flash"; // Efficient for grounding tasks
+  const modelId = "gemini-2.5-flash"; 
 
-  // Configure tools. We use Google Maps for precise location data and Google Search as a fallback/enricher.
   const tools: Tool[] = [
     { googleMaps: {} }, 
     { googleSearch: {} }
@@ -28,36 +28,27 @@ export const searchLeads = async (
   } : undefined;
 
   const prompt = `
-    Atue como um sistema de Extração de Leads em Massa (Bulk Lead Scraper).
+    Atue como um Extrator de Leads Segmentado.
     
-    OBJETIVO: Gerar uma lista sólida de até 100 empresas do nicho "${niche}" localizadas em "${location}".
+    OBJETIVO: Listar ENTRE 50 e 60 EMPRESAS do nicho "${niche}" em "${location}".
     
-    INSTRUÇÕES CRÍTICAS:
-    1. QUANTIDADE: Busque profundamente nos dados do Google Maps e Busca para listar entre 50 a 100 resultados relevantes. Não tente exceder 100 para garantir a integridade dos dados.
-    2. PRIORIDADE: Foque estritamente em empresas que possuam NÚMERO DE TELEFONE listado.
-    3. FORMATO: Mantenha estritamente o formato abaixo para facilitar a importação.
+    FOCO DESTA BUSCA ESPECÍFICA: ${searchFocus}
+    (Use este foco para variar os termos de busca e encontrar empresas que outras buscas podem ter perdido).
+
+    REGRAS DE EXTRAÇÃO:
+    1. Priorize empresas com TELEFONE.
+    2. Tente encontrar o EMAIL via busca web se não estiver no Maps.
+    3. Seja rápido e direto.
     
-    Separador entre empresas: "---"
-    
-    Formato de cada item:
-    Nome: [Nome da Empresa]
-    Telefone: [Número de Telefone]
-    Email: [Email se disponível, senão N/A]
-    Endereço: [Endereço Completo]
-    Avaliação: [Nota/Rating]
-    Site: [Website]
-    
-    Exemplo de saída esperada:
-    
-    Nome: Padaria A
-    Telefone: (11) 9999-9999
-    Email: contato@padariaa.com.br
-    Endereço: Rua X, 123
-    Avaliação: 4.5
-    Site: www.padariaa.com.br
+    FORMATO OBRIGATÓRIO (para parser):
     ---
-    Nome: Padaria B
-    ...
+    Nome: [Nome da Empresa]
+    Telefone: [Número]
+    Email: [Email ou N/A]
+    Endereço: [Endereço Completo]
+    Avaliação: [Nota]
+    Site: [URL]
+    ---
   `;
 
   try {
@@ -67,11 +58,11 @@ export const searchLeads = async (
       config: {
         tools: tools,
         toolConfig: toolConfig,
-        temperature: 0.4, 
+        temperature: 0.6, // Temperatura maior para garantir variedade entre os lotes
       }
     });
 
-    const rawText = response.text || "Nenhum resultado encontrado.";
+    const rawText = response.text || "";
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
     return {
@@ -81,6 +72,10 @@ export const searchLeads = async (
 
   } catch (error) {
     console.error("Erro na busca Gemini:", error);
-    throw new Error("Falha ao contactar a API de Inteligência Artificial.");
+    // Retorna vazio em vez de erro para não quebrar o Promise.all dos outros lotes
+    return {
+      rawText: "Erro neste lote.",
+      groundingChunks: []
+    };
   }
 };

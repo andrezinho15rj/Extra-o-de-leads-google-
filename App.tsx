@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { searchLeads } from './services/geminiService';
-import { BusinessLead, SearchState } from './types';
+import { BusinessLead, SearchState, GroundingChunk } from './types';
 import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
@@ -10,15 +10,15 @@ export default function App() {
     location: '',
     isLocating: false
   });
+  
+  // State
   const [leads, setLeads] = useState<BusinessLead[]>([]);
-  const [rawResponse, setRawResponse] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(0); // 0 to 100
+  const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<{title: string, uri: string}[]>([]);
-
-  // Timer ref to clear intervals if component unmounts
-  const timerRef = useRef<number | null>(null);
+  const [rawResponseDebug, setRawResponseDebug] = useState<string>('');
 
   const handleLocate = () => {
     setSearchState(prev => ({ ...prev, isLocating: true }));
@@ -44,25 +44,29 @@ export default function App() {
   };
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
-    const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 10);
+    const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 20); // Filter tiny chunks
     
-    return chunks.map((chunk, index) => {
+    return chunks.map((chunk, index): BusinessLead | null => {
       const getField = (keyword: string) => {
         const regex = new RegExp(`${keyword}:\\s*(.*)`, 'i');
         const match = chunk.match(regex);
         return match ? match[1].trim() : 'N/A';
       };
 
+      const name = getField('Nome');
+      // Basic validation to avoid junk leads
+      if (!name || name === 'N/A' || name.length < 2) return null;
+
       return {
-        id: `lead-${index}-${Date.now()}`,
-        name: getField('Nome'),
+        id: `lead-${Date.now()}-${Math.random()}`, // Temp ID, will be keyed by content later
+        name: name,
         phone: getField('Telefone'),
         email: getField('Email'),
         address: getField('Endereço'),
         rating: getField('Avaliação'),
         website: getField('Site')
       };
-    }).filter(lead => lead.name !== 'N/A');
+    }).filter((lead): lead is BusinessLead => lead !== null);
   };
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
@@ -70,27 +74,18 @@ export default function App() {
     if (!searchState.niche || !searchState.location) return;
 
     setLoading(true);
-    setProgress(0);
+    setProgress(5);
     setError(null);
     setLeads([]);
     setSources([]);
-
-    // Simula uma barra de progresso baseada no tempo médio de resposta (30-60s)
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = window.setInterval(() => {
-      setProgress((oldProgress) => {
-        if (oldProgress >= 95) {
-          return 95; // Estaciona em 95% até a resposta chegar
-        }
-        const increment = Math.random() * 2;
-        return Math.min(oldProgress + increment, 95);
-      });
-    }, 500);
+    setRawResponseDebug('');
+    setStatusMessage('Iniciando agentes de busca...');
 
     try {
       let lat: number | undefined;
       let lng: number | undefined;
 
+      // Resolve Location
       if (searchState.location.toLowerCase().includes('minha localização')) {
         try {
            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -99,51 +94,81 @@ export default function App() {
            lat = pos.coords.latitude;
            lng = pos.coords.longitude;
         } catch (e) {
-          // Ignore location error
+           // ignore
         }
       }
 
-      const response = await searchLeads(searchState.niche, searchState.location, lat, lng);
+      // STRATEGY: 3 Parallel Batches to maximize coverage and avoid timeout
+      const batches = [
+        "Foque nas empresas MAIS BEM AVALIADAS e POPULARES na região central.",
+        "Foque em empresas em BAIRROS PERIFÉRICOS, ZONA NORTE ou SUL (varie a região).",
+        "Foque em NOVAS empresas, PRESTADORES DE SERVIÇO e PEQUENOS NEGÓCIOS (long tail)."
+      ];
+
+      let completedBatches = 0;
+      const totalBatches = batches.length;
       
-      if (timerRef.current) clearInterval(timerRef.current);
-      setProgress(100);
+      // Temporary storage for deduplication
+      const allLeadsMap = new Map<string, BusinessLead>();
+      const allSourcesMap = new Map<string, {title: string, uri: string}>();
 
-      await new Promise(r => setTimeout(r, 500));
+      setStatusMessage(`Disparando ${totalBatches} agentes de busca paralelos...`);
 
-      setRawResponse(response.rawText);
-      const parsedLeads = parseLeadsFromText(response.rawText);
-      setLeads(parsedLeads);
+      // Fire requests
+      const promises = batches.map(async (focus, index) => {
+        try {
+          const response = await searchLeads(searchState.niche, searchState.location, lat, lng, focus);
+          
+          // Process Partial Results
+          completedBatches++;
+          const percent = Math.round((completedBatches / totalBatches) * 100);
+          setProgress(percent);
+          setStatusMessage(`Processando lote ${completedBatches}/${totalBatches}...`);
 
-      const extractedSources: {title: string, uri: string}[] = [];
-      response.groundingChunks.forEach(chunk => {
-        if (chunk.web) {
-          extractedSources.push({ title: chunk.web.title, uri: chunk.web.uri });
-        }
-        if (chunk.maps && chunk.maps.uri) {
-           extractedSources.push({ title: chunk.maps.title || 'Google Maps', uri: chunk.maps.uri });
+          // Append Raw Text for debug
+          setRawResponseDebug(prev => prev + `\n\n=== LOTE ${index + 1} ===\n` + response.rawText);
+
+          // Parse and Add Leads
+          const newLeads = parseLeadsFromText(response.rawText);
+          
+          newLeads.forEach(lead => {
+            // Deduplicate Key: Name + Phone (normalized)
+            const phoneKey = lead.phone.replace(/\D/g, '');
+            const key = phoneKey.length > 5 ? phoneKey : lead.name.toLowerCase().trim();
+            
+            if (!allLeadsMap.has(key)) {
+              allLeadsMap.set(key, lead);
+            }
+          });
+
+          // Sources
+          response.groundingChunks.forEach(chunk => {
+             if (chunk.web) allSourcesMap.set(chunk.web.uri, { title: chunk.web.title, uri: chunk.web.uri });
+             if (chunk.maps?.uri) allSourcesMap.set(chunk.maps.uri, { title: chunk.maps.title || 'Google Maps', uri: chunk.maps.uri });
+          });
+
+          // Update UI incrementally
+          setLeads(Array.from(allLeadsMap.values()));
+          setSources(Array.from(allSourcesMap.values()));
+
+        } catch (err) {
+          console.error(`Batch ${index} failed`, err);
         }
       });
-      const uniqueSources = extractedSources.filter((v,i,a)=>a.findIndex(v2=>(v2.uri===v.uri))===i);
-      setSources(uniqueSources);
 
-      if (parsedLeads.length === 0) {
-        setError("Nenhum lead estruturado foi encontrado, mas veja os dados brutos abaixo.");
+      await Promise.all(promises);
+      
+      setStatusMessage('Finalizado!');
+      if (allLeadsMap.size === 0) {
+        setError("Nenhum lead encontrado. Tente simplificar os termos ou mudar a localização.");
       }
 
     } catch (err: any) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setError(err.message || "Ocorreu um erro desconhecido.");
+      setError(err.message || "Ocorreu um erro crítico na busca.");
     } finally {
       setLoading(false);
     }
   }, [searchState]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
@@ -156,10 +181,10 @@ export default function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
-            <h1 className="text-xl font-bold tracking-tight">Extractor de Leads <span className="text-blue-500">AI</span></h1>
+            <h1 className="text-xl font-bold tracking-tight">Extractor de Leads <span className="text-blue-500">Massivo</span></h1>
           </div>
           <div className="text-sm text-gray-400 hidden sm:block">
-            Powered by Gemini
+            Powered by Gemini 2.5
           </div>
         </div>
       </header>
@@ -194,7 +219,7 @@ export default function App() {
                   type="text"
                   value={searchState.location}
                   onChange={(e) => setSearchState(s => ({ ...s, location: e.target.value }))}
-                  placeholder="Ex: São Paulo, Centro, RJ"
+                  placeholder="Ex: Rio de Janeiro, SP, Centro"
                   className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all disabled:opacity-50"
                   required
                   disabled={loading}
@@ -249,19 +274,19 @@ export default function App() {
 
           {/* Progress Bar */}
           {loading && (
-            <div className="mt-6 space-y-2 animate-pulse">
+            <div className="mt-6 space-y-2">
               <div className="flex justify-between text-xs text-gray-400 uppercase tracking-wide font-semibold">
-                <span>Processando dados...</span>
-                <span>{Math.round(progress)}%</span>
+                <span>{statusMessage}</span>
+                <span>{progress}%</span>
               </div>
               <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
                 <div 
-                  className="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out" 
+                  className="bg-blue-500 h-3 rounded-full transition-all duration-500 ease-out" 
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
-              <p className="text-center text-sm text-gray-500 pt-2">
-                A extração em massa pode levar cerca de 1 minuto. Por favor, aguarde.
+              <p className="text-center text-sm text-gray-500 pt-2 animate-pulse">
+                Os leads aparecerão abaixo assim que cada lote for concluído.
               </p>
             </div>
           )}
@@ -278,23 +303,40 @@ export default function App() {
         )}
 
         {/* Results Area */}
-        {leads.length > 0 && !loading && (
+        {(leads.length > 0 || loading) && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-              <h2 className="text-2xl font-bold text-white">
-                Resultados Encontrados ({leads.length})
-              </h2>
-              <ExportButton leads={leads} niche={searchState.niche} />
-            </div>
+            {leads.length > 0 && (
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 animate-fade-in">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  Resultados Coletados
+                  <span className="bg-blue-600 text-white text-sm py-1 px-3 rounded-full">
+                    {leads.length}
+                  </span>
+                </h2>
+                <ExportButton leads={leads} niche={searchState.niche} />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {leads.map((lead) => (
                 <LeadCard key={lead.id} lead={lead} />
               ))}
+              
+              {/* Skeleton Loaders if still loading */}
+              {loading && progress < 100 && Array.from({length: 3}).map((_, i) => (
+                <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-5 h-48 animate-pulse flex flex-col justify-between">
+                   <div className="space-y-3">
+                     <div className="h-6 bg-gray-700 rounded w-3/4"></div>
+                     <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+                     <div className="h-4 bg-gray-700 rounded w-full"></div>
+                   </div>
+                   <div className="h-8 bg-gray-700 rounded w-full mt-4"></div>
+                </div>
+              ))}
             </div>
 
             {/* Sources / Attribution */}
-            {sources.length > 0 && (
+            {!loading && sources.length > 0 && (
               <div className="mt-8 pt-6 border-t border-gray-800">
                 <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Fontes de Dados (Grounding)</h3>
                 <div className="flex flex-wrap gap-2">
@@ -314,25 +356,15 @@ export default function App() {
             )}
           </div>
         )}
-
-        {/* Fallback for raw text if parsing failed but we have text */}
-        {leads.length === 0 && rawResponse && !loading && !error && (
-           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 mt-6">
-             <h3 className="text-lg font-bold mb-4 text-yellow-400">Resposta Bruta da IA</h3>
-             <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono overflow-x-auto">
-               {rawResponse}
-             </pre>
-           </div>
-        )}
         
-        {/* Empty State / Initial Instructions */}
-        {!loading && leads.length === 0 && !rawResponse && !error && (
+        {/* Empty State */}
+        {!loading && leads.length === 0 && !error && (
           <div className="text-center py-20 opacity-50">
             <svg className="w-20 h-20 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
             <p className="text-xl font-medium text-gray-400">Digite um nicho e local para começar a extrair leads.</p>
-            <p className="text-sm text-gray-500 mt-2">O sistema usará Google Maps e Busca para encontrar números atualizados.</p>
+            <p className="text-sm text-gray-500 mt-2">O sistema usará 3 agentes paralelos para maximizar os resultados.</p>
           </div>
         )}
 
