@@ -1,17 +1,11 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { searchLeads } from './services/geminiService';
 import { BusinessLead, SearchState } from './types';
 import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
 export default function App() {
-  // ==============================================================================
-  // ÁREA DE CONFIGURAÇÃO RÁPIDA
-  // Se você não quiser digitar a chave na tela toda vez, cole ela dentro das aspas abaixo:
-  const HARDCODED_KEY = ""; // Exemplo: "AIzaSyD..."
-  // ==============================================================================
-
-  // Função robusta para pegar a chave do ambiente (Vite ou Node)
+  // Função para pegar a chave do ambiente de forma segura
   const getEnvKey = () => {
     try {
       // 1. Tenta pegar do padrão Vite (import.meta.env)
@@ -19,6 +13,7 @@ export default function App() {
       const viteMeta = (import.meta as any).env;
       if (viteMeta) {
         if (viteMeta.VITE_API_KEY) return viteMeta.VITE_API_KEY;
+        // Algumas configs customizadas podem expor sem prefixo
         if (viteMeta.API_KEY) return viteMeta.API_KEY;
       }
     } catch (e) {
@@ -26,27 +21,25 @@ export default function App() {
     }
 
     try {
-      // 2. Fallback para process.env (caso haja polyfill ou outro bundler)
+      // 2. Fallback para process.env
       if (typeof process !== 'undefined' && process.env) {
-        return process.env.API_KEY || process.env.VITE_API_KEY;
+        return process.env.VITE_API_KEY || process.env.API_KEY;
       }
     } catch (e) {}
 
-    // 3. Verifica se foi injetado via window (polyfill do index.tsx)
+    // 3. Fallback janela
     try {
        const win = window as any;
+       if (win.process?.env?.VITE_API_KEY) return win.process.env.VITE_API_KEY;
        if (win.process?.env?.API_KEY) return win.process.env.API_KEY;
     } catch (e) {}
 
     return '';
   };
 
-  const initialKey = HARDCODED_KEY || getEnvKey() || '';
+  const apiKey = getEnvKey();
 
   // State
-  const [apiKey, setApiKey] = useState(initialKey);
-  const [showKeyInput, setShowKeyInput] = useState(!initialKey);
-
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
     location: '',
@@ -114,11 +107,9 @@ export default function App() {
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentKey = apiKey || initialKey;
     
-    if (!currentKey) {
-      setError("Por favor, insira sua API Key do Google Gemini para continuar.");
-      setShowKeyInput(true);
+    if (!apiKey) {
+      setError("Erro de Configuração: API Key não encontrada. Verifique se o arquivo .env existe e contém 'VITE_API_KEY=sua_chave'. Reinicie o servidor após alterar o arquivo.");
       return;
     }
     if (!searchState.niche || !searchState.location) return;
@@ -163,8 +154,7 @@ export default function App() {
 
       const promises = batches.map(async (focus, index) => {
         try {
-          // Passamos a apiKey explicitamente aqui
-          const response = await searchLeads(currentKey, searchState.niche, searchState.location, lat, lng, focus);
+          const response = await searchLeads(apiKey, searchState.niche, searchState.location, lat, lng, focus);
           
           completedBatches++;
           const percent = Math.round((completedBatches / totalBatches) * 100);
@@ -205,7 +195,7 @@ export default function App() {
       
       setStatusMessage('Finalizado!');
       if (allLeadsMap.size === 0) {
-        setError("Nenhum lead encontrado. Verifique sua API Key, ou tente simplificar os termos.");
+        setError("Nenhum lead encontrado. Tente simplificar os termos ou verifique se a API tem permissão de busca.");
       }
 
     } catch (err: any) {
@@ -213,7 +203,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [searchState, apiKey, initialKey]);
+  }, [searchState, apiKey]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
@@ -230,37 +220,15 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <button 
-              onClick={() => setShowKeyInput(!showKeyInput)}
-              className="text-xs text-gray-400 hover:text-white underline"
-            >
-              {showKeyInput ? 'Ocultar API Key' : 'Configurar API Key'}
-            </button>
+             {/* Área de status da API (Discreta) */}
+             <div className="text-xs flex items-center gap-2 px-3 py-1 rounded-full bg-gray-900 border border-gray-700">
+               <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
+               <span className="text-gray-400">
+                 {apiKey ? 'API Conectada' : 'Sem API Key (.env)'}
+               </span>
+             </div>
           </div>
         </div>
-        
-        {/* API Key Input Section (Collapsible) */}
-        {showKeyInput && (
-          <div className="bg-gray-800 border-b border-gray-700 p-4 animate-fade-in">
-            <div className="max-w-3xl mx-auto">
-               <label className="block text-xs font-semibold text-blue-400 mb-1 uppercase tracking-wider">
-                 Google Gemini API Key
-               </label>
-               <div className="flex gap-2">
-                 <input 
-                   type="password" 
-                   value={apiKey}
-                   onChange={(e) => setApiKey(e.target.value)}
-                   placeholder="Cole sua chave aqui (começa com AIza...)"
-                   className="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
-                 />
-               </div>
-               <p className="text-xs text-gray-500 mt-1">
-                 A chave é usada apenas localmente no seu navegador para buscar os dados.
-               </p>
-            </div>
-          </div>
-        )}
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
@@ -438,7 +406,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
             <p className="text-xl font-medium text-gray-400">Digite um nicho e local para começar a extrair leads.</p>
-            <p className="text-sm text-gray-500 mt-2">Certifique-se de configurar sua API Key no topo.</p>
+            <p className="text-sm text-gray-500 mt-2">O arquivo .env será usado para autenticação.</p>
           </div>
         )}
 
