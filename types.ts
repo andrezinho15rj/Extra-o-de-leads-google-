@@ -1,7 +1,9 @@
+
 export interface BusinessLead {
   id: string;
   name: string;
   phone: string;
+  cnpj?: string;
   email?: string;
   address: string;
   rating?: string;

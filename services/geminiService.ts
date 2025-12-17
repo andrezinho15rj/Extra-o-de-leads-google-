@@ -1,11 +1,11 @@
+
 import { GoogleGenAI, Tool, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { SearchResponse } from "../types";
 
-// Função auxiliar para espera (delay)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const searchLeads = async (
-  apiKey: string,
+  _ignoredApiKey: string, 
   niche: string, 
   location: string,
   userLat?: number,
@@ -13,19 +13,18 @@ export const searchLeads = async (
   searchFocus: string = "Geral"
 ): Promise<SearchResponse> => {
   
-  if (!apiKey) {
-    throw new Error("API Key não fornecida.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey: apiKey });
-  // Atualizado para gemini-3-flash-preview para maior velocidade e janelas de contexto melhores
-  const modelId = "gemini-3-flash-preview"; 
+  // Inicialização estritamente conforme as diretrizes
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  // "Maps grounding is only supported in Gemini 2.5 series models."
+  const modelId = "gemini-2.5-flash"; 
 
   const tools: Tool[] = [
     { googleMaps: {} }, 
     { googleSearch: {} }
   ];
 
+  // Configuração de localização para o Google Maps se disponível
   const toolConfig = (userLat && userLng) ? {
     retrievalConfig: {
       latLng: {
@@ -35,39 +34,34 @@ export const searchLeads = async (
     }
   } : undefined;
 
-  const systemInstruction = `Você é o "Winner Extractor Gold", a IA de prospecção mais avançada do mercado.
-  Seu objetivo é extrair listas massivas de leads comerciais B2B. 
-  Seja agressivo na busca: use o Google Maps para localizar empresas e o Google Search para encontrar redes sociais e sites.`;
+  const systemInstruction = `Você é o "Winner Extractor Gold + CNPJ Expert". 
+  Sua missão é localizar empresas e extrair dados comerciais completos, incluindo o CNPJ, usando o Google Maps e Google Search.
+  Sempre tente validar o CNPJ em diretórios públicos como Casa dos Dados ou similares através das ferramentas de busca.
+  Retorne os dados estritamente no formato de blocos separado por "---".`;
 
   const prompt = `
-    ESTRATÉGIA DE VARREDURA: ${searchFocus}
-    LOCALIZAÇÃO: ${location}
-    NICHO: ${niche}
+    ESTRATÉGIA DE BUSCA: ${searchFocus}
+    LOCALIZAÇÃO ALVO: ${location}
+    NICHO OU EMPRESA: ${niche}
 
-    TAREFA: Extraia uma lista de 20 EMPRESAS DIFERENTES seguindo a estratégia acima.
+    TAREFA: Gere uma lista de pelo menos 5 leads reais.
     
-    REQUISITOS DE DADOS:
-    - Tente obter o Telefone (prioridade máxima).
-    - Busque o Instagram (prioridade alta).
-    - Obtenha a Avaliação (ex: 4.5).
-    - Se não encontrar o dado, use "N/A".
-
-    FORMATO DE RESPOSTA (ESTRITAMENTE ESTE PADRÃO):
+    FORMATO DE RESPOSTA (OBRIGATÓRIO):
     ---
-    Nome: [Nome]
-    Telefone: [Telefone]
-    Email: [Email ou N/A]
-    Endereço: [Endereço]
-    Avaliação: [Nota]
-    Site: [URL ou N/A]
-    Instagram: [URL ou N/A]
-    Facebook: [URL ou N/A]
+    Nome: [Nome da Empresa]
+    CNPJ: [Número do CNPJ ou N/A]
+    Telefone: [Telefone com DDD]
+    Email: [Email de contato ou N/A]
+    Endereço: [Endereço Completo]
+    Avaliação: [Nota média no Maps]
+    Site: [URL do site ou N/A]
+    Instagram: [URL do perfil ou N/A]
+    Facebook: [URL da página ou N/A]
     ---
   `;
 
-  const maxRetries = 6;
-  let lastError: any;
-
+  const maxRetries = 3;
+  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await ai.models.generateContent({
@@ -77,7 +71,7 @@ export const searchLeads = async (
           systemInstruction: systemInstruction,
           tools: tools,
           toolConfig: toolConfig,
-          temperature: 0.5,
+          temperature: 0.1, // Temperatura baixa para maior precisão nos dados
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -87,29 +81,30 @@ export const searchLeads = async (
         }
       });
 
+      // Extração de texto segura
+      const responseText = response.text || "";
+      
       return {
-        rawText: response.text || "",
+        rawText: responseText,
         groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
       };
 
     } catch (error: any) {
-      const errorStr = String(error?.message || error);
-      const isQuota = errorStr.includes("429") || errorStr.includes("Quota") || errorStr.includes("quota");
+      console.error(`Tentativa ${attempt} falhou:`, error);
       
-      if (isQuota && attempt < maxRetries) {
-        // Se bater a cota, esperamos o tempo necessário (geralmente 30-60s no plano free)
-        const waitTime = 15000 * attempt; 
-        console.warn(`Cota atingida. Tentativa ${attempt}. Aguardando ${waitTime/1000}s...`);
-        await delay(waitTime);
+      const errorMsg = error?.message || "";
+      const isQuotaError = errorMsg.includes("429") || errorMsg.includes("Quota");
+      
+      if (attempt < maxRetries && isQuotaError) {
+        // Espera exponencial em caso de erro de cota
+        await delay(20000 * attempt);
         continue;
       }
-      lastError = error;
-      break;
+      
+      // Lança o erro para ser tratado pela UI
+      throw new Error(errorMsg || "Erro desconhecido ao chamar a API do Gemini");
     }
   }
 
-  return {
-    rawText: `ERRO FINAL:\n${lastError?.message || "Falha na conexão"}`,
-    groundingChunks: []
-  };
+  throw new Error("Não foi possível obter resposta após várias tentativas.");
 };

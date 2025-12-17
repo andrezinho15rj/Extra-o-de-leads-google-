@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { BusinessLead } from '../types';
 
@@ -10,8 +11,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ leads, niche }) => {
   const handleExport = () => {
     if (leads.length === 0) return;
 
-    // Colunas expandidas para incluir dados novos
-    const headers = ['name', 'number', 'email', 'tags', 'carteira', 'instagram', 'facebook', 'website', 'winner_score', 'rating'];
+    const headers = ['name', 'cnpj', 'number', 'email', 'tags', 'instagram', 'facebook', 'website', 'winner_score', 'rating'];
     
     const csvContent = [
       headers.join(';'), 
@@ -24,16 +24,17 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ leads, niche }) => {
         }
 
         const email = (lead.email && lead.email !== 'N/A') ? lead.email : '';
+        const cnpj = (lead.cnpj && lead.cnpj !== 'N/A') ? lead.cnpj : '';
         const insta = (lead.instagram && lead.instagram !== 'N/A') ? lead.instagram : '';
         const fb = (lead.facebook && lead.facebook !== 'N/A') ? lead.facebook : '';
         const web = (lead.website && lead.website !== 'N/A') ? lead.website : '';
 
         return [
           sanitize(lead.name),
+          sanitize(cnpj),
           sanitize(cleanPhone),    
           sanitize(email),         
           sanitize(niche),         
-          sanitize(''),
           sanitize(insta),
           sanitize(fb),
           sanitize(web),
