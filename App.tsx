@@ -118,8 +118,7 @@ export default function App() {
 
       setStatusMessage(`Consultando Google Maps e Web (Sequencial)...`);
 
-      // Mudança crítica: Execução SEQUENCIAL em vez de PARALELA (Promise.all)
-      // para evitar erro 503 (Model Overloaded)
+      // Mudança crítica: Execução SEQUENCIAL com atraso grande
       for (let index = 0; index < batches.length; index++) {
         const focus = batches[index];
         
@@ -153,13 +152,13 @@ export default function App() {
              }
           });
 
-          // Atualiza a tela a cada lote para o usuário ver progresso
           setLeads(Array.from(allLeadsMap.values()));
           setSources(Array.from(allSourcesMap.values()));
 
-          // Pausa pequena entre lotes para não sobrecarregar a API
+          // Atraso de 5 segundos entre lotes para evitar bloqueio 503/429
           if (index < batches.length - 1) {
-             await new Promise(resolve => setTimeout(resolve, 1500));
+             setStatusMessage(`Aguardando API esfriar (5s)...`);
+             await new Promise(resolve => setTimeout(resolve, 5000));
           }
 
         } catch (err) {

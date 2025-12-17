@@ -60,8 +60,8 @@ export const searchLeads = async (
     ---
   `;
 
-  // Lógica de Retry (Tentativas em caso de erro 503/429)
-  const maxRetries = 3;
+  // Lógica de Retry Agressiva (Backoff Exponencial)
+  const maxRetries = 5;
   let lastError: any;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -99,16 +99,18 @@ export const searchLeads = async (
       lastError = error;
       
       const errorStr = String(error?.message || error);
-      // Se for sobrecarga (503) ou muitas requisições (429), espera e tenta de novo
+      // Se for sobrecarga (503) ou muitas requisições (429), espera muito mais tempo
       if (errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("429")) {
         if (attempt < maxRetries) {
-          const waitTime = attempt * 2000; // 2s, 4s, 6s...
-          console.log(`Aguardando ${waitTime}ms para tentar novamente...`);
+          // Backoff Exponencial: 2s, 4s, 8s, 16s, 32s
+          // Isso ajuda a sair do período de instabilidade da API
+          const waitTime = Math.pow(2, attempt) * 1000; 
+          console.log(`Erro 503/429 detectado. Aguardando ${waitTime}ms para tentar novamente...`);
           await delay(waitTime);
           continue;
         }
       } else {
-        // Se for outro erro (ex: chave inválida), não adianta tentar de novo
+        // Se for erro de chave ou permissão, não tenta de novo
         break; 
       }
     }
@@ -135,11 +137,11 @@ export const searchLeads = async (
   } else if (technicalDetails.includes("403") || technicalDetails.includes("PERMISSION_DENIED")) {
       friendlyError = "ACESSO NEGADO (403). Verifique restrições da chave.";
   } else if (technicalDetails.includes("503") || technicalDetails.includes("overloaded")) {
-      friendlyError = "SERVIÇO SOBRECARREGADO (503). O Google Gemini está com instabilidade temporária. Tente novamente em alguns minutos.";
+      friendlyError = "SERVIÇO SOBRECARREGADO (503). O Google Gemini está instável. Tentamos 5 vezes e falhou. Tente novamente daqui a alguns minutos.";
   }
 
   return {
-    rawText: `ERRO DE CONFIGURAÇÃO:\n${friendlyError}\n\nDetalhes Técnicos: ${technicalDetails}`,
+    rawText: `ERRO DE SISTEMA APÓS 5 TENTATIVAS:\n${friendlyError}\n\nDetalhes Técnicos: ${technicalDetails}`,
     groundingChunks: []
   };
 };
