@@ -6,13 +6,8 @@ import { ExportButton } from './components/ExportButton';
 
 export default function App() {
   // Leitura direta e agressiva da variável de ambiente
-  // Em Vite, import.meta.env.VITE_API_KEY é o padrão ouro.
   const envKey = (import.meta as any).env?.VITE_API_KEY;
-  
-  // Fallback para process.env caso esteja rodando em um ambiente Node/CRA híbrido
   const processKey = typeof process !== 'undefined' ? process.env?.VITE_API_KEY : undefined;
-
-  // Chave final
   const apiKey = envKey || processKey || '';
 
   // State
@@ -24,7 +19,7 @@ export default function App() {
   
   const [leads, setLeads] = useState<BusinessLead[]>([]);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0); // 0 to 100
+  const [progress, setProgress] = useState(0); 
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<{title: string, uri: string}[]>([]);
@@ -55,17 +50,21 @@ export default function App() {
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
     if (!text) return [];
-    const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 20); 
+    // Aceita --- ou marcadores similares
+    const chunks = text.split(/---|___|\*\*\*/).map(c => c.trim()).filter(c => c.length > 20); 
     
     const parsed = chunks.map((chunk) => {
       const getField = (keyword: string) => {
-        const regex = new RegExp(`${keyword}:\\s*(.*)`, 'i');
+        // Regex mais flexível para capturar Nome: Valor ou **Nome**: Valor
+        const regex = new RegExp(`${keyword}[:\\*]*\\s*(.*)`, 'i');
         const match = chunk.match(regex);
-        return match ? match[1].trim() : 'N/A';
+        // Remove markdown bold se houver
+        return match ? match[1].replace(/\*\*/g, '').trim() : 'N/A';
       };
 
       const name = getField('Nome');
-      if (!name || name === 'N/A' || name.length < 2) return null;
+      // Filtro básico para ignorar pedaços de texto que não são leads
+      if (!name || name === 'N/A' || name.length < 2 || name.toLowerCase().includes('exemplo')) return null;
 
       return {
         id: `lead-${Date.now()}-${Math.random()}`, 
@@ -114,10 +113,10 @@ export default function App() {
         }
       }
 
+      // Reduzido para 2 lotes para teste mais rápido e menos erro de cota
       const batches = [
-        "Foque nas empresas MAIS BEM AVALIADAS e POPULARES na região central.",
-        "Foque em empresas em BAIRROS PERIFÉRICOS, ZONA NORTE ou SUL (varie a região).",
-        "Foque em NOVAS empresas, PRESTADORES DE SERVIÇO e PEQUENOS NEGÓCIOS (long tail)."
+        "Foque nas empresas MAIS BEM AVALIADAS e POPULARES.",
+        "Foque em NOVAS empresas e PEQUENOS NEGÓCIOS locais."
       ];
 
       let completedBatches = 0;
@@ -126,7 +125,7 @@ export default function App() {
       const allLeadsMap = new Map<string, BusinessLead>();
       const allSourcesMap = new Map<string, {title: string, uri: string}>();
 
-      setStatusMessage(`Disparando ${totalBatches} agentes de busca paralelos...`);
+      setStatusMessage(`Consultando Google Maps e Web...`);
 
       const promises = batches.map(async (focus, index) => {
         try {
@@ -135,9 +134,9 @@ export default function App() {
           completedBatches++;
           const percent = Math.round((completedBatches / totalBatches) * 100);
           setProgress(percent);
-          setStatusMessage(`Processando lote ${completedBatches}/${totalBatches}...`);
+          setStatusMessage(`Analisando resultados (${completedBatches}/${totalBatches})...`);
 
-          setRawResponseDebug(prev => prev + `\n\n=== LOTE ${index + 1} ===\n` + response.rawText);
+          setRawResponseDebug(prev => prev + `\n\n=== RESPOSTA DO AGENTE ${index + 1} ===\n` + response.rawText);
 
           const newLeads = parseLeadsFromText(response.rawText);
           
@@ -170,8 +169,9 @@ export default function App() {
       await Promise.all(promises);
       
       setStatusMessage('Finalizado!');
+      
       if (allLeadsMap.size === 0) {
-        setError("Nenhum lead encontrado. Tente simplificar os termos ou verifique se a API tem permissão de busca.");
+        setError("Nenhum lead estruturado encontrado. Verifique o LOG BRUTO abaixo para ver o que a IA respondeu.");
       }
 
     } catch (err: any) {
@@ -196,11 +196,10 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3 w-full md:w-auto">
-             {/* Área de status da API (Discreta) */}
              <div className="text-xs flex items-center gap-2 px-3 py-1 rounded-full bg-gray-900 border border-gray-700">
                <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
                <span className="text-gray-400">
-                 {apiKey ? 'API Conectada (.env)' : 'ERRO: .env não detectado'}
+                 {apiKey ? 'API Conectada' : 'Sem .env'}
                </span>
              </div>
           </div>
@@ -303,9 +302,6 @@ export default function App() {
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
-              <p className="text-center text-sm text-gray-500 pt-2 animate-pulse">
-                Os leads aparecerão abaixo assim que cada lote for concluído.
-              </p>
             </div>
           )}
         </section>
@@ -317,57 +313,55 @@ export default function App() {
                 <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Problema de Configuração</span>
+                <span>Problema na Busca</span>
              </div>
              <p>{error}</p>
-             {!apiKey && (
-               <div className="text-sm bg-black/20 p-3 rounded mt-2 font-mono">
-                 <p className="mb-1 text-yellow-500 font-bold">Diagnóstico:</p>
-                 <p>1. Verifique se o arquivo se chama exatamente: <span className="text-white">.env</span> (na raiz)</p>
-                 <p>2. Conteúdo deve ser: <span className="text-white">VITE_API_KEY=AIzaSy...</span></p>
-                 <p className="mt-2 text-blue-300 font-bold">3. IMPORTANTE: Reinicie o terminal (pare e rode npm run dev novamente).</p>
-               </div>
-             )}
+          </div>
+        )}
+        
+        {/* RAW DEBUG LOG - ESSENCIAL PARA DIAGNÓSTICO */}
+        {rawResponseDebug && leads.length === 0 && !loading && (
+          <div className="mb-8 border border-yellow-700 bg-yellow-900/20 p-4 rounded-xl">
+             <h3 className="text-yellow-500 font-bold mb-2 flex items-center gap-2">
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+               Diagnóstico (Log da IA)
+             </h3>
+             <p className="text-sm text-gray-300 mb-2">
+               A IA retornou dados, mas o sistema não conseguiu ler. Veja abaixo o que ela disse. 
+               Se aparecer "I cannot do that" ou "Policy Violation", é um bloqueio do Google.
+             </p>
+             <details>
+               <summary className="cursor-pointer text-blue-400 hover:text-blue-300 text-sm">Clique para ver a resposta bruta</summary>
+               <pre className="mt-2 p-3 bg-black rounded text-xs text-green-400 overflow-x-auto whitespace-pre-wrap font-mono border border-gray-800">
+                 {rawResponseDebug}
+               </pre>
+             </details>
           </div>
         )}
 
         {/* Results Area */}
-        {(leads.length > 0 || loading) && (
+        {(leads.length > 0) && (
           <div className="space-y-6">
-            {leads.length > 0 && (
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 animate-fade-in">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  Resultados Coletados
-                  <span className="bg-blue-600 text-white text-sm py-1 px-3 rounded-full">
-                    {leads.length}
-                  </span>
-                </h2>
-                <ExportButton leads={leads} niche={searchState.niche} />
-              </div>
-            )}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 animate-fade-in">
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                Resultados Coletados
+                <span className="bg-blue-600 text-white text-sm py-1 px-3 rounded-full">
+                  {leads.length}
+                </span>
+              </h2>
+              <ExportButton leads={leads} niche={searchState.niche} />
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {leads.map((lead) => (
                 <LeadCard key={lead.id} lead={lead} />
               ))}
-              
-              {/* Skeleton Loaders if still loading */}
-              {loading && progress < 100 && Array.from({length: 3}).map((_, i) => (
-                <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-5 h-48 animate-pulse flex flex-col justify-between">
-                   <div className="space-y-3">
-                     <div className="h-6 bg-gray-700 rounded w-3/4"></div>
-                     <div className="h-4 bg-gray-700 rounded w-1/2"></div>
-                     <div className="h-4 bg-gray-700 rounded w-full"></div>
-                   </div>
-                   <div className="h-8 bg-gray-700 rounded w-full mt-4"></div>
-                </div>
-              ))}
             </div>
 
             {/* Sources / Attribution */}
-            {!loading && sources.length > 0 && (
+            {sources.length > 0 && (
               <div className="mt-8 pt-6 border-t border-gray-800">
-                <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Fontes de Dados (Grounding)</h3>
+                <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Fontes de Dados</h3>
                 <div className="flex flex-wrap gap-2">
                   {sources.map((src, idx) => (
                     <a 
@@ -387,7 +381,7 @@ export default function App() {
         )}
         
         {/* Empty State */}
-        {!loading && leads.length === 0 && !error && (
+        {!loading && leads.length === 0 && !error && !rawResponseDebug && (
           <div className="text-center py-20 opacity-50">
             <svg className="w-20 h-20 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
