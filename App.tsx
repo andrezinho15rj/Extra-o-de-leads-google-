@@ -5,39 +5,15 @@ import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
 export default function App() {
-  // Função para pegar a chave do ambiente de forma segura
-  const getEnvKey = () => {
-    try {
-      // 1. Tenta pegar do padrão Vite (import.meta.env)
-      // O Vite expõe automaticamente variáveis que começam com VITE_
-      const viteMeta = (import.meta as any).env;
-      if (viteMeta) {
-        if (viteMeta.VITE_API_KEY) return viteMeta.VITE_API_KEY;
-        // Algumas configs customizadas podem expor sem prefixo
-        if (viteMeta.API_KEY) return viteMeta.API_KEY;
-      }
-    } catch (e) {
-      // Ignora erro se import.meta não existir
-    }
+  // Leitura direta e agressiva da variável de ambiente
+  // Em Vite, import.meta.env.VITE_API_KEY é o padrão ouro.
+  const envKey = (import.meta as any).env?.VITE_API_KEY;
+  
+  // Fallback para process.env caso esteja rodando em um ambiente Node/CRA híbrido
+  const processKey = typeof process !== 'undefined' ? process.env?.VITE_API_KEY : undefined;
 
-    try {
-      // 2. Fallback para process.env
-      if (typeof process !== 'undefined' && process.env) {
-        return process.env.VITE_API_KEY || process.env.API_KEY;
-      }
-    } catch (e) {}
-
-    // 3. Fallback janela
-    try {
-       const win = window as any;
-       if (win.process?.env?.VITE_API_KEY) return win.process.env.VITE_API_KEY;
-       if (win.process?.env?.API_KEY) return win.process.env.API_KEY;
-    } catch (e) {}
-
-    return '';
-  };
-
-  const apiKey = getEnvKey();
+  // Chave final
+  const apiKey = envKey || processKey || '';
 
   // State
   const [searchState, setSearchState] = useState<SearchState>({
@@ -109,7 +85,7 @@ export default function App() {
     e.preventDefault();
     
     if (!apiKey) {
-      setError("Erro de Configuração: API Key não encontrada. Verifique se o arquivo .env existe e contém 'VITE_API_KEY=sua_chave'. Reinicie o servidor após alterar o arquivo.");
+      setError("ERRO CRÍTICO: Chave API não detectada no ambiente.");
       return;
     }
     if (!searchState.niche || !searchState.location) return;
@@ -224,7 +200,7 @@ export default function App() {
              <div className="text-xs flex items-center gap-2 px-3 py-1 rounded-full bg-gray-900 border border-gray-700">
                <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
                <span className="text-gray-400">
-                 {apiKey ? 'API Conectada' : 'Sem API Key (.env)'}
+                 {apiKey ? 'API Conectada (.env)' : 'ERRO: .env não detectado'}
                </span>
              </div>
           </div>
@@ -336,11 +312,22 @@ export default function App() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-8 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg flex items-center gap-3 animate-fade-in">
-             <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-             </svg>
-             {error}
+          <div className="mb-8 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg flex flex-col gap-2 animate-fade-in">
+             <div className="flex items-center gap-2 font-bold text-red-300">
+                <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Problema de Configuração</span>
+             </div>
+             <p>{error}</p>
+             {!apiKey && (
+               <div className="text-sm bg-black/20 p-3 rounded mt-2 font-mono">
+                 <p className="mb-1 text-yellow-500 font-bold">Diagnóstico:</p>
+                 <p>1. Verifique se o arquivo se chama exatamente: <span className="text-white">.env</span> (na raiz)</p>
+                 <p>2. Conteúdo deve ser: <span className="text-white">VITE_API_KEY=AIzaSy...</span></p>
+                 <p className="mt-2 text-blue-300 font-bold">3. IMPORTANTE: Reinicie o terminal (pare e rode npm run dev novamente).</p>
+               </div>
+             )}
           </div>
         )}
 
