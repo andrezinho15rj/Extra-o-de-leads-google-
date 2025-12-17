@@ -9,8 +9,14 @@ export const searchLeads = async (
   searchFocus: string = "Geral e principais resultados"
 ): Promise<SearchResponse> => {
   
-  // Inicialização dentro da função para evitar crash na carga do módulo se process não estiver definido
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Verificação de segurança da API Key
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API_KEY não encontrada. Verifique se a variável de ambiente está configurada (ex: .env ou process.env).");
+  }
+
+  // Inicialização segura
+  const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelId = "gemini-2.5-flash"; 
 
   const tools: Tool[] = [
@@ -72,8 +78,9 @@ export const searchLeads = async (
 
   } catch (error) {
     console.error("Erro na busca Gemini:", error);
+    // Retorna erro amigável na interface se a chave for inválida ou quota excedida
     return {
-      rawText: "Erro neste lote.",
+      rawText: "Erro na conexão com a IA. Verifique a API Key e sua conexão.",
       groundingChunks: []
     };
   }
