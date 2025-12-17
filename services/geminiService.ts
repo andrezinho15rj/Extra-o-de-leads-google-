@@ -14,10 +14,7 @@ export const searchLeads = async (
 ): Promise<SearchResponse> => {
   
   const apiKey = process.env.API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Chave API não configurada.");
-  }
+  if (!apiKey) throw new Error("Chave API não configurada.");
 
   const ai = new GoogleGenAI({ apiKey });
   const modelId = "gemini-3-flash-preview"; 
@@ -36,21 +33,15 @@ export const searchLeads = async (
     }
   } : undefined;
 
-  const systemInstruction = `Você é o "Winner Extractor Gold".
-Sua tarefa é encontrar empresas reais e ATIVAS no Brasil.
-Seja extremamente rápido e preciso. 
-Retorne o MÁXIMO de leads que conseguir de uma única vez (objetivo: 15 a 20 leads por bloco).
-Sempre procure pelo CNPJ em fontes de transparência pública.
-Use "---" como separador estrito entre cada lead.`;
+  const systemInstruction = `Você é o "Winner Extractor Gold". Extraia empresas ATIVAS no Brasil. 
+Seja direto. Retorne até 10 leads de alta qualidade com CNPJ. Use "---" como separador.`;
 
   const prompt = `
     ESTRATÉGIA: ${searchFocus}
     LOCALIZAÇÃO: ${location}
     NICHO: ${niche}
 
-    TAREFA: Gere uma lista massiva de leads comerciais.
-    
-    FORMATO OBRIGATÓRIO POR LEAD:
+    FORMATO:
     ---
     Nome: [Nome]
     CNPJ: [CNPJ ou N/A]
@@ -64,9 +55,10 @@ Use "---" como separador estrito entre cada lead.`;
     ---
   `;
 
-  const maxRetries = 2;
+  // Apenas 1 retentativa rápida para evitar esperas longas
+  const maxRetries = 1;
   
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await ai.models.generateContent({
         model: modelId,
@@ -75,7 +67,8 @@ Use "---" como separador estrito entre cada lead.`;
           systemInstruction: systemInstruction,
           tools: tools,
           toolConfig: toolConfig,
-          temperature: 0.2, // Temperatura levemente maior para fluidez e volume de dados
+          temperature: 0.1,
+          thinkingConfig: { thinkingBudget: 0 }, // VELOCIDADE MÁXIMA: desativa o raciocínio estendido
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -93,7 +86,7 @@ Use "---" como separador estrito entre cada lead.`;
     } catch (error: any) {
       const errorMsg = error?.message || "";
       if (attempt < maxRetries && (errorMsg.includes("429") || errorMsg.includes("Quota"))) {
-        await delay(10000); // 10s de espera em caso de erro real de cota
+        await delay(5000); // Espera curta de 5s se bater no limite
         continue;
       }
       throw error;
