@@ -5,12 +5,10 @@ import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
 export default function App() {
-  // Leitura direta e agressiva da variável de ambiente
   const envKey = (import.meta as any).env?.VITE_API_KEY;
   const processKey = typeof process !== 'undefined' ? process.env?.VITE_API_KEY : undefined;
   const apiKey = envKey || processKey || '';
 
-  // State
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
     location: '',
@@ -50,20 +48,16 @@ export default function App() {
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
     if (!text) return [];
-    // Aceita --- ou marcadores similares
     const chunks = text.split(/---|___|\*\*\*/).map(c => c.trim()).filter(c => c.length > 20); 
     
     const parsed = chunks.map((chunk) => {
       const getField = (keyword: string) => {
-        // Regex mais flexível para capturar Nome: Valor ou **Nome**: Valor
         const regex = new RegExp(`${keyword}[:\\*]*\\s*(.*)`, 'i');
         const match = chunk.match(regex);
-        // Remove markdown bold se houver
         return match ? match[1].replace(/\*\*/g, '').trim() : 'N/A';
       };
 
       const name = getField('Nome');
-      // Filtro básico para ignorar pedaços de texto que não são leads
       if (!name || name === 'N/A' || name.length < 2 || name.toLowerCase().includes('exemplo')) return null;
 
       return {
@@ -108,12 +102,9 @@ export default function App() {
            });
            lat = pos.coords.latitude;
            lng = pos.coords.longitude;
-        } catch (e) {
-           // ignore
-        }
+        } catch (e) { }
       }
 
-      // Reduzido para 2 lotes para teste mais rápido e menos erro de cota
       const batches = [
         "Foque nas empresas MAIS BEM AVALIADAS e POPULARES.",
         "Foque em NOVAS empresas e PEQUENOS NEGÓCIOS locais."
@@ -125,16 +116,20 @@ export default function App() {
       const allLeadsMap = new Map<string, BusinessLead>();
       const allSourcesMap = new Map<string, {title: string, uri: string}>();
 
-      setStatusMessage(`Consultando Google Maps e Web...`);
+      setStatusMessage(`Consultando Google Maps e Web (Sequencial)...`);
 
-      const promises = batches.map(async (focus, index) => {
+      // Mudança crítica: Execução SEQUENCIAL em vez de PARALELA (Promise.all)
+      // para evitar erro 503 (Model Overloaded)
+      for (let index = 0; index < batches.length; index++) {
+        const focus = batches[index];
+        
         try {
           const response = await searchLeads(apiKey, searchState.niche, searchState.location, lat, lng, focus);
           
           completedBatches++;
           const percent = Math.round((completedBatches / totalBatches) * 100);
           setProgress(percent);
-          setStatusMessage(`Analisando resultados (${completedBatches}/${totalBatches})...`);
+          setStatusMessage(`Processando lote ${completedBatches}/${totalBatches}...`);
 
           setRawResponseDebug(prev => prev + `\n\n=== RESPOSTA DO AGENTE ${index + 1} ===\n` + response.rawText);
 
@@ -158,15 +153,19 @@ export default function App() {
              }
           });
 
+          // Atualiza a tela a cada lote para o usuário ver progresso
           setLeads(Array.from(allLeadsMap.values()));
           setSources(Array.from(allSourcesMap.values()));
+
+          // Pausa pequena entre lotes para não sobrecarregar a API
+          if (index < batches.length - 1) {
+             await new Promise(resolve => setTimeout(resolve, 1500));
+          }
 
         } catch (err) {
           console.error(`Batch ${index} failed`, err);
         }
-      });
-
-      await Promise.all(promises);
+      }
       
       setStatusMessage('Finalizado!');
       
@@ -319,7 +318,7 @@ export default function App() {
           </div>
         )}
         
-        {/* RAW DEBUG LOG - ESSENCIAL PARA DIAGNÓSTICO */}
+        {/* RAW DEBUG LOG */}
         {rawResponseDebug && leads.length === 0 && !loading && (
           <div className="mb-8 border border-yellow-700 bg-yellow-900/20 p-4 rounded-xl">
              <h3 className="text-yellow-500 font-bold mb-2 flex items-center gap-2">
@@ -328,7 +327,6 @@ export default function App() {
              </h3>
              <p className="text-sm text-gray-300 mb-2">
                A IA retornou dados, mas o sistema não conseguiu ler. Veja abaixo o que ela disse. 
-               Se aparecer "I cannot do that" ou "Policy Violation", é um bloqueio do Google.
              </p>
              <details>
                <summary className="cursor-pointer text-blue-400 hover:text-blue-300 text-sm">Clique para ver a resposta bruta</summary>

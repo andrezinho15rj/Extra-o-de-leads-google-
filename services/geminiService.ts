@@ -1,6 +1,9 @@
 import { GoogleGenAI, Tool, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { SearchResponse } from "../types";
 
+// Função auxiliar para espera (delay)
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const searchLeads = async (
   apiKey: string,
   niche: string, 
@@ -17,7 +20,6 @@ export const searchLeads = async (
 
   // Inicialização
   const ai = new GoogleGenAI({ apiKey: apiKey });
-  // Usando o modelo flash que é rápido e suporta tools
   const modelId = "gemini-2.5-flash"; 
 
   const tools: Tool[] = [
@@ -34,7 +36,6 @@ export const searchLeads = async (
     }
   } : undefined;
 
-  // Reduzimos para 15 por lote para garantir qualidade e evitar cortes na resposta
   const prompt = `
     Atue como um Assistente de Pesquisa de Mercado focado em DADOS PÚBLICOS DE EMPRESAS (Business Directory).
     
@@ -57,62 +58,88 @@ export const searchLeads = async (
     Avaliação: [Nota ex: 4.8]
     Site: [URL ou N/A]
     ---
-    
-    Exemplo:
-    ---
-    Nome: Padaria do João
-    Telefone: (11) 9999-9999
-    Email: contato@padaria.com
-    Endereço: Rua das Flores, 123, SP
-    Avaliação: 4.5
-    Site: www.padaria.com
-    ---
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: modelId,
-      contents: prompt,
-      config: {
-        tools: tools,
-        toolConfig: toolConfig,
-        temperature: 0.4, // Temperatura mais baixa para ser mais fiel aos dados
-        safetySettings: [
-          // Permite conteúdo que a IA pode confundir com dados sensíveis, mas são dados públicos de empresas
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        ]
+  // Lógica de Retry (Tentativas em caso de erro 503/429)
+  const maxRetries = 3;
+  let lastError: any;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelId,
+        contents: prompt,
+        config: {
+          tools: tools,
+          toolConfig: toolConfig,
+          temperature: 0.4,
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ]
+        }
+      });
+
+      const rawText = response.text || "";
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+      if (rawText.length < 50) {
+        console.warn("Resposta da IA muito curta:", rawText);
       }
-    });
 
-    const rawText = response.text || "";
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      return {
+        rawText,
+        groundingChunks
+      };
 
-    // Se a resposta for muito curta, pode ser um erro da IA
-    if (rawText.length < 50) {
-      console.warn("Resposta da IA muito curta:", rawText);
+    } catch (error: any) {
+      console.error(`Tentativa ${attempt} falhou:`, error);
+      lastError = error;
+      
+      const errorStr = String(error?.message || error);
+      // Se for sobrecarga (503) ou muitas requisições (429), espera e tenta de novo
+      if (errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("429")) {
+        if (attempt < maxRetries) {
+          const waitTime = attempt * 2000; // 2s, 4s, 6s...
+          console.log(`Aguardando ${waitTime}ms para tentar novamente...`);
+          await delay(waitTime);
+          continue;
+        }
+      } else {
+        // Se for outro erro (ex: chave inválida), não adianta tentar de novo
+        break; 
+      }
     }
-
-    return {
-      rawText,
-      groundingChunks
-    };
-
-  } catch (error: any) {
-    console.error("Erro na busca Gemini:", error);
-    let errorMsg = "Erro na conexão com a IA.";
-    
-    if (error.message?.includes("403")) {
-      errorMsg = "Erro 403: Acesso Negado. Verifique se a API Key tem permissões ou se o faturamento está ativado no Google Cloud.";
-    } else if (error.message?.includes("429")) {
-      errorMsg = "Erro 429: Cota excedida. Você fez muitas requisições rápidas.";
-    }
-
-    return {
-      rawText: `ERRO DE SISTEMA: ${errorMsg}\nDetalhes: ${error.message}`,
-      groundingChunks: []
-    };
   }
+
+  // Se chegou aqui, falhou todas as tentativas
+  let friendlyError = "Erro desconhecido na conexão com a IA.";
+  let technicalDetails = lastError?.message || String(lastError);
+
+  try {
+      if (technicalDetails.includes('{')) {
+          const jsonPart = technicalDetails.substring(technicalDetails.indexOf('{'));
+          const parsed = JSON.parse(jsonPart);
+          if (parsed.error && parsed.error.message) {
+              technicalDetails = parsed.error.message;
+          }
+      }
+  } catch (e) { }
+
+  if (technicalDetails.includes("API key expired") || technicalDetails.includes("API_KEY_INVALID")) {
+      friendlyError = "SUA CHAVE EXPIROU. A API Key informada no .env é antiga ou inválida.";
+  } else if (technicalDetails.includes("SERVICE_DISABLED")) {
+      friendlyError = "API NÃO ATIVADA. O projeto Google Cloud não tem a 'Generative Language API' ativa.";
+  } else if (technicalDetails.includes("403") || technicalDetails.includes("PERMISSION_DENIED")) {
+      friendlyError = "ACESSO NEGADO (403). Verifique restrições da chave.";
+  } else if (technicalDetails.includes("503") || technicalDetails.includes("overloaded")) {
+      friendlyError = "SERVIÇO SOBRECARREGADO (503). O Google Gemini está com instabilidade temporária. Tente novamente em alguns minutos.";
+  }
+
+  return {
+    rawText: `ERRO DE CONFIGURAÇÃO:\n${friendlyError}\n\nDetalhes Técnicos: ${technicalDetails}`,
+    groundingChunks: []
+  };
 };
