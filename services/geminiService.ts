@@ -2,6 +2,8 @@
 import { GoogleGenAI, Tool, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { SearchResponse } from "../types";
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const searchLeads = async (
   _ignoredApiKey: string, 
   niche: string, 
@@ -14,60 +16,55 @@ export const searchLeads = async (
   if (!apiKey) throw new Error("Chave API não configurada.");
 
   const ai = new GoogleGenAI({ apiKey });
-  // Usando gemini-3-flash-preview que é o mais rápido para ferramentas
   const modelId = "gemini-3-flash-preview"; 
 
-  const tools: Tool[] = [
-    { googleSearch: {} },
-    { googleMaps: {} }
-  ];
+  // Simplificamos para usar apenas busca para ser mais leve na cota
+  const tools: Tool[] = [{ googleSearch: {} }];
 
-  const toolConfig = (userLat && userLng) ? {
-    retrievalConfig: {
-      latLng: {
-        latitude: userLat,
-        longitude: userLng
-      }
-    }
-  } : undefined;
-
-  // Instrução extremamente curta para não confundir o modelo
-  const systemInstruction = `Você é um extrator de leads ultra-rápido. 
-Localize empresas de "${niche}" em "${location}". 
-Retorne imediatamente os 8 primeiros resultados encontrados com Telefone e CNPJ. 
-Use o formato:
+  const systemInstruction = `Você é um extrator de leads. Localize empresas de "${niche}" em "${location}". 
+Retorne 8 resultados. Use o formato:
 ---
 Nome: [Nome]
-CNPJ: [CNPJ]
+CNPJ: [CNPJ ou N/A]
 Telefone: [DDD + Número]
 Endereço: [Endereço]
 ---`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: modelId,
-      contents: `Extraia 8 leads de ${niche} em ${location} agora.`,
-      config: {
-        systemInstruction: systemInstruction,
-        tools: tools,
-        toolConfig: toolConfig,
-        temperature: 0.1,
-        safetySettings: [
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        ]
+  let lastError = "";
+  // Tenta até 3 vezes com esperas crescentes se bater no limite
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelId,
+        contents: `Lista de empresas: ${niche} em ${location}`,
+        config: {
+          systemInstruction: systemInstruction,
+          tools: tools,
+          temperature: 0.1,
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ]
+        }
+      });
+
+      return {
+        rawText: response.text || "",
+        groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+      };
+
+    } catch (error: any) {
+      lastError = error.message || "Erro desconhecido";
+      
+      // Se for erro de cota (429), esperamos e tentamos de novo
+      if (lastError.includes("429") || lastError.includes("quota")) {
+        console.log(`Cota atingida. Tentativa ${attempt} de 3. Aguardando...`);
+        await delay(attempt * 5000); // Espera 5s, depois 10s...
+        continue;
       }
-    });
-
-    return {
-      rawText: response.text || "",
-      groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
-    };
-
-  } catch (error: any) {
-    console.error("Erro na API Gemini:", error);
-    throw new Error(error.message || "Erro desconhecido na extração.");
+      throw error;
+    }
   }
+
+  throw new Error(`Limite de uso da API atingido. Aguarde 1 minuto e tente novamente. Detalhes: ${lastError}`);
 };
