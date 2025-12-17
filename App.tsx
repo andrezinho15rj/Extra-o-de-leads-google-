@@ -11,9 +11,41 @@ export default function App() {
   const HARDCODED_KEY = ""; // Exemplo: "AIzaSyD..."
   // ==============================================================================
 
-  // Tenta pegar da variável fixa acima, ou do ambiente (.env), senão inicia vazio
-  const [apiKey, setApiKey] = useState(HARDCODED_KEY || process.env.API_KEY || '');
-  const [showKeyInput, setShowKeyInput] = useState(!HARDCODED_KEY && !process.env.API_KEY);
+  // Função robusta para pegar a chave do ambiente (Vite ou Node)
+  const getEnvKey = () => {
+    try {
+      // 1. Tenta pegar do padrão Vite (import.meta.env)
+      // O Vite expõe automaticamente variáveis que começam com VITE_
+      const viteMeta = (import.meta as any).env;
+      if (viteMeta) {
+        if (viteMeta.VITE_API_KEY) return viteMeta.VITE_API_KEY;
+        if (viteMeta.API_KEY) return viteMeta.API_KEY;
+      }
+    } catch (e) {
+      // Ignora erro se import.meta não existir
+    }
+
+    try {
+      // 2. Fallback para process.env (caso haja polyfill ou outro bundler)
+      if (typeof process !== 'undefined' && process.env) {
+        return process.env.API_KEY || process.env.VITE_API_KEY;
+      }
+    } catch (e) {}
+
+    // 3. Verifica se foi injetado via window (polyfill do index.tsx)
+    try {
+       const win = window as any;
+       if (win.process?.env?.API_KEY) return win.process.env.API_KEY;
+    } catch (e) {}
+
+    return '';
+  };
+
+  const initialKey = HARDCODED_KEY || getEnvKey() || '';
+
+  // State
+  const [apiKey, setApiKey] = useState(initialKey);
+  const [showKeyInput, setShowKeyInput] = useState(!initialKey);
 
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
@@ -21,7 +53,6 @@ export default function App() {
     isLocating: false
   });
   
-  // State
   const [leads, setLeads] = useState<BusinessLead[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 100
@@ -83,7 +114,7 @@ export default function App() {
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentKey = apiKey || HARDCODED_KEY;
+    const currentKey = apiKey || initialKey;
     
     if (!currentKey) {
       setError("Por favor, insira sua API Key do Google Gemini para continuar.");
@@ -182,7 +213,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [searchState, apiKey]);
+  }, [searchState, apiKey, initialKey]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
