@@ -5,9 +5,15 @@ import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
 export default function App() {
-  // Tenta pegar do ambiente (arquivo .env), senão inicia vazio
-  const [apiKey, setApiKey] = useState(process.env.API_KEY || '');
-  const [showKeyInput, setShowKeyInput] = useState(!process.env.API_KEY);
+  // ==============================================================================
+  // ÁREA DE CONFIGURAÇÃO RÁPIDA
+  // Se você não quiser digitar a chave na tela toda vez, cole ela dentro das aspas abaixo:
+  const HARDCODED_KEY = ""; // Exemplo: "AIzaSyD..."
+  // ==============================================================================
+
+  // Tenta pegar da variável fixa acima, ou do ambiente (.env), senão inicia vazio
+  const [apiKey, setApiKey] = useState(HARDCODED_KEY || process.env.API_KEY || '');
+  const [showKeyInput, setShowKeyInput] = useState(!HARDCODED_KEY && !process.env.API_KEY);
 
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
@@ -77,7 +83,9 @@ export default function App() {
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey) {
+    const currentKey = apiKey || HARDCODED_KEY;
+    
+    if (!currentKey) {
       setError("Por favor, insira sua API Key do Google Gemini para continuar.");
       setShowKeyInput(true);
       return;
@@ -125,7 +133,7 @@ export default function App() {
       const promises = batches.map(async (focus, index) => {
         try {
           // Passamos a apiKey explicitamente aqui
-          const response = await searchLeads(apiKey, searchState.niche, searchState.location, lat, lng, focus);
+          const response = await searchLeads(currentKey, searchState.niche, searchState.location, lat, lng, focus);
           
           completedBatches++;
           const percent = Math.round((completedBatches / totalBatches) * 100);
