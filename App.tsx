@@ -1,10 +1,14 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { searchLeads } from './services/geminiService';
-import { BusinessLead, SearchState, GroundingChunk } from './types';
+import { BusinessLead, SearchState } from './types';
 import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
 
 export default function App() {
+  // Tenta pegar do ambiente (arquivo .env), senão inicia vazio
+  const [apiKey, setApiKey] = useState(process.env.API_KEY || '');
+  const [showKeyInput, setShowKeyInput] = useState(!process.env.API_KEY);
+
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
     location: '',
@@ -45,9 +49,9 @@ export default function App() {
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
     if (!text) return [];
-    const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 20); // Filter tiny chunks
+    const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 20); 
     
-    const parsed = chunks.map((chunk, index) => {
+    const parsed = chunks.map((chunk) => {
       const getField = (keyword: string) => {
         const regex = new RegExp(`${keyword}:\\s*(.*)`, 'i');
         const match = chunk.match(regex);
@@ -55,7 +59,6 @@ export default function App() {
       };
 
       const name = getField('Nome');
-      // Basic validation to avoid junk leads
       if (!name || name === 'N/A' || name.length < 2) return null;
 
       return {
@@ -69,12 +72,16 @@ export default function App() {
       } as BusinessLead;
     });
 
-    // Filtro simplificado para evitar erro de TypeScript estrito em alguns ambientes
     return parsed.filter((lead) => lead !== null) as BusinessLead[];
   };
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!apiKey) {
+      setError("Por favor, insira sua API Key do Google Gemini para continuar.");
+      setShowKeyInput(true);
+      return;
+    }
     if (!searchState.niche || !searchState.location) return;
 
     setLoading(true);
@@ -89,7 +96,6 @@ export default function App() {
       let lat: number | undefined;
       let lng: number | undefined;
 
-      // Resolve Location
       if (searchState.location.toLowerCase().includes('minha localização')) {
         try {
            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -102,7 +108,6 @@ export default function App() {
         }
       }
 
-      // STRATEGY: 3 Parallel Batches to maximize coverage and avoid timeout
       const batches = [
         "Foque nas empresas MAIS BEM AVALIADAS e POPULARES na região central.",
         "Foque em empresas em BAIRROS PERIFÉRICOS, ZONA NORTE ou SUL (varie a região).",
@@ -112,31 +117,26 @@ export default function App() {
       let completedBatches = 0;
       const totalBatches = batches.length;
       
-      // Temporary storage for deduplication
       const allLeadsMap = new Map<string, BusinessLead>();
       const allSourcesMap = new Map<string, {title: string, uri: string}>();
 
       setStatusMessage(`Disparando ${totalBatches} agentes de busca paralelos...`);
 
-      // Fire requests
       const promises = batches.map(async (focus, index) => {
         try {
-          const response = await searchLeads(searchState.niche, searchState.location, lat, lng, focus);
+          // Passamos a apiKey explicitamente aqui
+          const response = await searchLeads(apiKey, searchState.niche, searchState.location, lat, lng, focus);
           
-          // Process Partial Results
           completedBatches++;
           const percent = Math.round((completedBatches / totalBatches) * 100);
           setProgress(percent);
           setStatusMessage(`Processando lote ${completedBatches}/${totalBatches}...`);
 
-          // Append Raw Text for debug
           setRawResponseDebug(prev => prev + `\n\n=== LOTE ${index + 1} ===\n` + response.rawText);
 
-          // Parse and Add Leads
           const newLeads = parseLeadsFromText(response.rawText);
           
           newLeads.forEach(lead => {
-            // Deduplicate Key: Name + Phone (normalized)
             const phoneKey = lead.phone.replace(/\D/g, '');
             const key = phoneKey.length > 5 ? phoneKey : lead.name.toLowerCase().trim();
             
@@ -145,13 +145,15 @@ export default function App() {
             }
           });
 
-          // Sources
           response.groundingChunks.forEach(chunk => {
-             if (chunk.web) allSourcesMap.set(chunk.web.uri, { title: chunk.web.title, uri: chunk.web.uri });
-             if (chunk.maps?.uri) allSourcesMap.set(chunk.maps.uri, { title: chunk.maps.title || 'Google Maps', uri: chunk.maps.uri });
+             if (chunk.web?.uri) {
+                allSourcesMap.set(chunk.web.uri, { title: chunk.web.title || chunk.web.uri, uri: chunk.web.uri });
+             }
+             if (chunk.maps?.uri) {
+                allSourcesMap.set(chunk.maps.uri, { title: chunk.maps.title || 'Google Maps', uri: chunk.maps.uri });
+             }
           });
 
-          // Update UI incrementally
           setLeads(Array.from(allLeadsMap.values()));
           setSources(Array.from(allSourcesMap.values()));
 
@@ -164,7 +166,7 @@ export default function App() {
       
       setStatusMessage('Finalizado!');
       if (allLeadsMap.size === 0) {
-        setError("Nenhum lead encontrado. Tente simplificar os termos ou mudar a localização.");
+        setError("Nenhum lead encontrado. Verifique sua API Key, ou tente simplificar os termos.");
       }
 
     } catch (err: any) {
@@ -172,13 +174,13 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [searchState]);
+  }, [searchState, apiKey]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
       {/* Header */}
       <header className="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,10 +189,39 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold tracking-tight">Extractor de Leads <span className="text-blue-500">Massivo</span></h1>
           </div>
-          <div className="text-sm text-gray-400 hidden sm:block">
-            Powered by Gemini 2.5
+          
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <button 
+              onClick={() => setShowKeyInput(!showKeyInput)}
+              className="text-xs text-gray-400 hover:text-white underline"
+            >
+              {showKeyInput ? 'Ocultar API Key' : 'Configurar API Key'}
+            </button>
           </div>
         </div>
+        
+        {/* API Key Input Section (Collapsible) */}
+        {showKeyInput && (
+          <div className="bg-gray-800 border-b border-gray-700 p-4 animate-fade-in">
+            <div className="max-w-3xl mx-auto">
+               <label className="block text-xs font-semibold text-blue-400 mb-1 uppercase tracking-wider">
+                 Google Gemini API Key
+               </label>
+               <div className="flex gap-2">
+                 <input 
+                   type="password" 
+                   value={apiKey}
+                   onChange={(e) => setApiKey(e.target.value)}
+                   placeholder="Cole sua chave aqui (começa com AIza...)"
+                   className="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
+                 />
+               </div>
+               <p className="text-xs text-gray-500 mt-1">
+                 A chave é usada apenas localmente no seu navegador para buscar os dados.
+               </p>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
@@ -298,7 +329,7 @@ export default function App() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-8 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg flex items-center gap-3">
+          <div className="mb-8 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg flex items-center gap-3 animate-fade-in">
              <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
              </svg>
@@ -368,7 +399,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
             <p className="text-xl font-medium text-gray-400">Digite um nicho e local para começar a extrair leads.</p>
-            <p className="text-sm text-gray-500 mt-2">O sistema usará 3 agentes paralelos para maximizar os resultados.</p>
+            <p className="text-sm text-gray-500 mt-2">Certifique-se de configurar sua API Key no topo.</p>
           </div>
         )}
 

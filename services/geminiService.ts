@@ -2,6 +2,7 @@ import { GoogleGenAI, Tool } from "@google/genai";
 import { SearchResponse } from "../types";
 
 export const searchLeads = async (
+  apiKey: string,
   niche: string, 
   location: string,
   userLat?: number,
@@ -9,13 +10,12 @@ export const searchLeads = async (
   searchFocus: string = "Geral e principais resultados"
 ): Promise<SearchResponse> => {
   
-  // Verificação de segurança da API Key
-  const apiKey = process.env.API_KEY;
+  // Validação básica
   if (!apiKey) {
-    throw new Error("API_KEY não encontrada. Verifique se a variável de ambiente está configurada (ex: .env ou process.env).");
+    throw new Error("API Key não fornecida. Insira sua chave nas configurações.");
   }
 
-  // Inicialização segura
+  // Inicialização com a chave fornecida dinamicamente
   const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelId = "gemini-2.5-flash"; 
 
@@ -78,9 +78,8 @@ export const searchLeads = async (
 
   } catch (error) {
     console.error("Erro na busca Gemini:", error);
-    // Retorna erro amigável na interface se a chave for inválida ou quota excedida
     return {
-      rawText: "Erro na conexão com a IA. Verifique a API Key e sua conexão.",
+      rawText: "Erro na conexão com a IA. Verifique se sua API Key é válida e tem acesso ao modelo gemini-2.5-flash.",
       groundingChunks: []
     };
   }

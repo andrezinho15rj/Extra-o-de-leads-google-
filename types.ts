@@ -21,8 +21,8 @@ export interface SearchResponse {
 
 export interface GroundingChunk {
   web?: {
-    uri: string;
-    title: string;
+    uri?: string;
+    title?: string;
   };
   maps?: {
     placeId?: string;
