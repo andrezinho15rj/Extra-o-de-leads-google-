@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Extractor de Leads AI</title>
+    <title>Winner Extractor AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -23,6 +23,11 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #6b7280; 
       }
+      .winner-gradient {
+        background: linear-gradient(135deg, #FFD700 0%, #FDB931 50%, #C08200 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
     </style>
   <script type="importmap">
 {
@@ -35,7 +40,7 @@
 }
 </script>
 </head>
-  <body class="bg-gray-900 text-gray-100 antialiased">
+  <body class="bg-gray-950 text-gray-100 antialiased selection:bg-yellow-500 selection:text-black">
     <div id="root"></div>
     <!-- Ponto de entrada obrigatório para Vite -->
     <script type="module" src="/index.tsx"></script>

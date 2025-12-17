@@ -6,6 +6,9 @@ export interface BusinessLead {
   address: string;
   rating?: string;
   website?: string;
+  instagram?: string;
+  facebook?: string;
+  winnerScore: number; // 0 a 100
 }
 
 export interface SearchState {
@@ -29,4 +32,10 @@ export interface GroundingChunk {
     uri?: string;
     title?: string;
   };
+}
+
+export interface SearchHistoryItem {
+  niche: string;
+  location: string;
+  date: string;
 }

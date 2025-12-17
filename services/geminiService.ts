@@ -36,20 +36,21 @@ export const searchLeads = async (
     }
   } : undefined;
 
+  const systemInstruction = `Você é o Winner Extractor AI, um especialista em inteligência comercial e OSINT (Open Source Intelligence). 
+  Sua missão é localizar empresas reais, verificar sua existência no Google Maps e extrair contatos comerciais públicos com precisão cirúrgica.`;
+
   const prompt = `
-    Atue como um Assistente de Pesquisa de Mercado focado em DADOS PÚBLICOS DE EMPRESAS (Business Directory).
-    
     TAREFA: Encontre 15 EMPRESAS DO NICHO "${niche}" localizadas em "${location}".
     
     CONTEXTO DA BUSCA: ${searchFocus}
     
     INSTRUÇÕES CRÍTICAS:
-    1. Utilize o Google Maps para verificar a existência real da empresa.
-    2. Extraia APENAS dados comerciais públicos (Nome, Telefone Comercial, Endereço Público).
-    3. Se não encontrar 15, liste quantas encontrar.
-    4. NÃO invente dados. Se não tiver telefone, coloque "N/A".
+    1. Use o Google Maps para validar o endereço e a existência.
+    2. Busque links de Instagram e Facebook ativamente.
+    3. NÃO invente dados. Se não houver telefone, escreva "N/A".
+    4. Priorize empresas com telefone e avaliação visível.
     
-    FORMATO DE RESPOSTA OBRIGATÓRIO (Use estritamente este padrão para que meu sistema consiga ler):
+    FORMATO DE RESPOSTA OBRIGATÓRIO (Mantenha estritamente este layout):
     ---
     Nome: [Nome da Empresa]
     Telefone: [Telefone Comercial]
@@ -57,6 +58,8 @@ export const searchLeads = async (
     Endereço: [Endereço Completo]
     Avaliação: [Nota ex: 4.8]
     Site: [URL ou N/A]
+    Instagram: [URL ou N/A]
+    Facebook: [URL ou N/A]
     ---
   `;
 
@@ -70,6 +73,7 @@ export const searchLeads = async (
         model: modelId,
         contents: prompt,
         config: {
+          systemInstruction: systemInstruction,
           tools: tools,
           toolConfig: toolConfig,
           temperature: 0.4,
@@ -99,24 +103,24 @@ export const searchLeads = async (
       lastError = error;
       
       const errorStr = String(error?.message || error);
-      // Se for sobrecarga (503) ou muitas requisições (429), espera muito mais tempo
+      
+      // Lógica específica para erros de servidor ou cota
       if (errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("429")) {
         if (attempt < maxRetries) {
-          // Backoff Exponencial: 2s, 4s, 8s, 16s, 32s
-          // Isso ajuda a sair do período de instabilidade da API
+          // Backoff Exponencial: 2s, 4s, 8s, 16s...
           const waitTime = Math.pow(2, attempt) * 1000; 
-          console.log(`Erro 503/429 detectado. Aguardando ${waitTime}ms para tentar novamente...`);
+          console.log(`Erro de servidor (${errorStr}). Aguardando ${waitTime}ms...`);
           await delay(waitTime);
           continue;
         }
       } else {
-        // Se for erro de chave ou permissão, não tenta de novo
+        // Erros de permissão ou chave inválida não adiantam tentar de novo
         break; 
       }
     }
   }
 
-  // Se chegou aqui, falhou todas as tentativas
+  // Tratamento de Erro Final
   let friendlyError = "Erro desconhecido na conexão com a IA.";
   let technicalDetails = lastError?.message || String(lastError);
 
@@ -131,17 +135,17 @@ export const searchLeads = async (
   } catch (e) { }
 
   if (technicalDetails.includes("API key expired") || technicalDetails.includes("API_KEY_INVALID")) {
-      friendlyError = "SUA CHAVE EXPIROU. A API Key informada no .env é antiga ou inválida.";
+      friendlyError = "SUA CHAVE É INVÁLIDA OU EXPIROU. Verifique o arquivo .env";
   } else if (technicalDetails.includes("SERVICE_DISABLED")) {
-      friendlyError = "API NÃO ATIVADA. O projeto Google Cloud não tem a 'Generative Language API' ativa.";
+      friendlyError = "API NÃO ATIVADA. Ative a 'Generative Language API' no Google Cloud Console.";
   } else if (technicalDetails.includes("403") || technicalDetails.includes("PERMISSION_DENIED")) {
-      friendlyError = "ACESSO NEGADO (403). Verifique restrições da chave.";
+      friendlyError = "ACESSO NEGADO (403). Sua chave não tem permissão.";
   } else if (technicalDetails.includes("503") || technicalDetails.includes("overloaded")) {
-      friendlyError = "SERVIÇO SOBRECARREGADO (503). O Google Gemini está instável. Tentamos 5 vezes e falhou. Tente novamente daqui a alguns minutos.";
+      friendlyError = "SERVIÇO SOBRECARREGADO (503). O Google Gemini está instável no momento. Tente novamente em 2 minutos.";
   }
 
   return {
-    rawText: `ERRO DE SISTEMA APÓS 5 TENTATIVAS:\n${friendlyError}\n\nDetalhes Técnicos: ${technicalDetails}`,
+    rawText: `ERRO DE SISTEMA:\n${friendlyError}\n\nDetalhes Técnicos: ${technicalDetails}`,
     groundingChunks: []
   };
 };
