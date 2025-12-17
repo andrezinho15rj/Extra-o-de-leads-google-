@@ -13,18 +13,23 @@ export const searchLeads = async (
   searchFocus: string = "Geral"
 ): Promise<SearchResponse> => {
   
-  // Inicialização estritamente conforme as diretrizes
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // A chave DEVE ser process.env.API_KEY conforme diretriz obrigatória
+  const apiKey = process.env.API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Chave API (process.env.API_KEY) não encontrada no ambiente de execução.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
-  // "Maps grounding is only supported in Gemini 2.5 series models."
-  const modelId = "gemini-2.5-flash"; 
+  // Utilizando o modelo gemini-3-flash-preview conforme recomendado para tarefas de texto/busca
+  const modelId = "gemini-3-flash-preview"; 
 
   const tools: Tool[] = [
-    { googleMaps: {} }, 
-    { googleSearch: {} }
+    { googleSearch: {} },
+    { googleMaps: {} }
   ];
 
-  // Configuração de localização para o Google Maps se disponível
   const toolConfig = (userLat && userLng) ? {
     retrievalConfig: {
       latLng: {
@@ -34,29 +39,29 @@ export const searchLeads = async (
     }
   } : undefined;
 
-  const systemInstruction = `Você é o "Winner Extractor Gold + CNPJ Expert". 
-  Sua missão é localizar empresas e extrair dados comerciais completos, incluindo o CNPJ, usando o Google Maps e Google Search.
-  Sempre tente validar o CNPJ em diretórios públicos como Casa dos Dados ou similares através das ferramentas de busca.
-  Retorne os dados estritamente no formato de blocos separado por "---".`;
+  const systemInstruction = `Você é o "Winner Extractor Gold".
+Sua tarefa é encontrar empresas reais no Brasil para o nicho e localização fornecidos.
+Foco principal: Nome, Telefone, CNPJ e Redes Sociais.
+Use o Google Maps para localizar os estabelecimentos e o Google Search para encontrar o CNPJ em sites como 'Casa dos Dados', 'CNPJ.biz' ou 'Transparência'.
+Retorne os dados em blocos separados por "---".`;
 
   const prompt = `
-    ESTRATÉGIA DE BUSCA: ${searchFocus}
-    LOCALIZAÇÃO ALVO: ${location}
-    NICHO OU EMPRESA: ${niche}
+    ESTRATÉGIA: ${searchFocus}
+    LOCALIZAÇÃO: ${location}
+    NICHO: ${niche}
 
-    TAREFA: Gere uma lista de pelo menos 5 leads reais.
-    
-    FORMATO DE RESPOSTA (OBRIGATÓRIO):
+    Extraia uma lista de 5 a 10 empresas.
+    Formato obrigatório por lead:
     ---
-    Nome: [Nome da Empresa]
-    CNPJ: [Número do CNPJ ou N/A]
-    Telefone: [Telefone com DDD]
-    Email: [Email de contato ou N/A]
-    Endereço: [Endereço Completo]
-    Avaliação: [Nota média no Maps]
-    Site: [URL do site ou N/A]
-    Instagram: [URL do perfil ou N/A]
-    Facebook: [URL da página ou N/A]
+    Nome: [Nome]
+    CNPJ: [CNPJ ou N/A]
+    Telefone: [DDD + Número]
+    Email: [Email ou N/A]
+    Endereço: [Endereço]
+    Avaliação: [Nota]
+    Site: [URL ou N/A]
+    Instagram: [URL ou N/A]
+    Facebook: [URL ou N/A]
     ---
   `;
 
@@ -71,7 +76,7 @@ export const searchLeads = async (
           systemInstruction: systemInstruction,
           tools: tools,
           toolConfig: toolConfig,
-          temperature: 0.1, // Temperatura baixa para maior precisão nos dados
+          temperature: 0.1,
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -81,30 +86,20 @@ export const searchLeads = async (
         }
       });
 
-      // Extração de texto segura
-      const responseText = response.text || "";
-      
       return {
-        rawText: responseText,
+        rawText: response.text || "",
         groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
       };
 
     } catch (error: any) {
-      console.error(`Tentativa ${attempt} falhou:`, error);
-      
       const errorMsg = error?.message || "";
-      const isQuotaError = errorMsg.includes("429") || errorMsg.includes("Quota");
-      
-      if (attempt < maxRetries && isQuotaError) {
-        // Espera exponencial em caso de erro de cota
-        await delay(20000 * attempt);
+      if (attempt < maxRetries && (errorMsg.includes("429") || errorMsg.includes("Quota"))) {
+        await delay(15000 * attempt);
         continue;
       }
-      
-      // Lança o erro para ser tratado pela UI
-      throw new Error(errorMsg || "Erro desconhecido ao chamar a API do Gemini");
+      throw error;
     }
   }
 
-  throw new Error("Não foi possível obter resposta após várias tentativas.");
+  throw new Error("Falha na comunicação com a inteligência artificial após tentativas.");
 };
