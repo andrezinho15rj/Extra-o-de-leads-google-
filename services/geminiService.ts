@@ -1,8 +1,6 @@
 import { GoogleGenAI, Tool } from "@google/genai";
 import { SearchResponse } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const searchLeads = async (
   niche: string, 
   location: string,
@@ -11,6 +9,8 @@ export const searchLeads = async (
   searchFocus: string = "Geral e principais resultados"
 ): Promise<SearchResponse> => {
   
+  // Inicialização dentro da função para evitar crash na carga do módulo se process não estiver definido
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const modelId = "gemini-2.5-flash"; 
 
   const tools: Tool[] = [
@@ -58,7 +58,7 @@ export const searchLeads = async (
       config: {
         tools: tools,
         toolConfig: toolConfig,
-        temperature: 0.6, // Temperatura maior para garantir variedade entre os lotes
+        temperature: 0.6,
       }
     });
 
@@ -72,7 +72,6 @@ export const searchLeads = async (
 
   } catch (error) {
     console.error("Erro na busca Gemini:", error);
-    // Retorna vazio em vez de erro para não quebrar o Promise.all dos outros lotes
     return {
       rawText: "Erro neste lote.",
       groundingChunks: []

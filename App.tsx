@@ -44,9 +44,10 @@ export default function App() {
   };
 
   const parseLeadsFromText = (text: string): BusinessLead[] => {
+    if (!text) return [];
     const chunks = text.split('---').map(c => c.trim()).filter(c => c.length > 20); // Filter tiny chunks
     
-    return chunks.map((chunk, index): BusinessLead | null => {
+    const parsed = chunks.map((chunk, index) => {
       const getField = (keyword: string) => {
         const regex = new RegExp(`${keyword}:\\s*(.*)`, 'i');
         const match = chunk.match(regex);
@@ -58,15 +59,18 @@ export default function App() {
       if (!name || name === 'N/A' || name.length < 2) return null;
 
       return {
-        id: `lead-${Date.now()}-${Math.random()}`, // Temp ID, will be keyed by content later
+        id: `lead-${Date.now()}-${Math.random()}`, 
         name: name,
         phone: getField('Telefone'),
         email: getField('Email'),
         address: getField('Endereço'),
         rating: getField('Avaliação'),
         website: getField('Site')
-      };
-    }).filter((lead): lead is BusinessLead => lead !== null);
+      } as BusinessLead;
+    });
+
+    // Filtro simplificado para evitar erro de TypeScript estrito em alguns ambientes
+    return parsed.filter((lead) => lead !== null) as BusinessLead[];
   };
 
   const handleSearch = useCallback(async (e: React.FormEvent) => {
