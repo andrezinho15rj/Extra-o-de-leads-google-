@@ -13,16 +13,13 @@ export const searchLeads = async (
   searchFocus: string = "Geral"
 ): Promise<SearchResponse> => {
   
-  // A chave DEVE ser process.env.API_KEY conforme diretriz obrigatória
   const apiKey = process.env.API_KEY;
 
   if (!apiKey) {
-    throw new Error("Chave API (process.env.API_KEY) não encontrada no ambiente de execução.");
+    throw new Error("Chave API não configurada.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  
-  // Utilizando o modelo gemini-3-flash-preview conforme recomendado para tarefas de texto/busca
   const modelId = "gemini-3-flash-preview"; 
 
   const tools: Tool[] = [
@@ -40,18 +37,20 @@ export const searchLeads = async (
   } : undefined;
 
   const systemInstruction = `Você é o "Winner Extractor Gold".
-Sua tarefa é encontrar empresas reais no Brasil para o nicho e localização fornecidos.
-Foco principal: Nome, Telefone, CNPJ e Redes Sociais.
-Use o Google Maps para localizar os estabelecimentos e o Google Search para encontrar o CNPJ em sites como 'Casa dos Dados', 'CNPJ.biz' ou 'Transparência'.
-Retorne os dados em blocos separados por "---".`;
+Sua tarefa é encontrar empresas reais e ATIVAS no Brasil.
+Seja extremamente rápido e preciso. 
+Retorne o MÁXIMO de leads que conseguir de uma única vez (objetivo: 15 a 20 leads por bloco).
+Sempre procure pelo CNPJ em fontes de transparência pública.
+Use "---" como separador estrito entre cada lead.`;
 
   const prompt = `
     ESTRATÉGIA: ${searchFocus}
     LOCALIZAÇÃO: ${location}
     NICHO: ${niche}
 
-    Extraia uma lista de 5 a 10 empresas.
-    Formato obrigatório por lead:
+    TAREFA: Gere uma lista massiva de leads comerciais.
+    
+    FORMATO OBRIGATÓRIO POR LEAD:
     ---
     Nome: [Nome]
     CNPJ: [CNPJ ou N/A]
@@ -65,7 +64,7 @@ Retorne os dados em blocos separados por "---".`;
     ---
   `;
 
-  const maxRetries = 3;
+  const maxRetries = 2;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -76,7 +75,7 @@ Retorne os dados em blocos separados por "---".`;
           systemInstruction: systemInstruction,
           tools: tools,
           toolConfig: toolConfig,
-          temperature: 0.1,
+          temperature: 0.2, // Temperatura levemente maior para fluidez e volume de dados
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
             { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -94,12 +93,12 @@ Retorne os dados em blocos separados por "---".`;
     } catch (error: any) {
       const errorMsg = error?.message || "";
       if (attempt < maxRetries && (errorMsg.includes("429") || errorMsg.includes("Quota"))) {
-        await delay(15000 * attempt);
+        await delay(10000); // 10s de espera em caso de erro real de cota
         continue;
       }
       throw error;
     }
   }
 
-  throw new Error("Falha na comunicação com a inteligência artificial após tentativas.");
+  throw new Error("Erro de conexão.");
 };

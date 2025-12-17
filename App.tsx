@@ -26,11 +26,10 @@ export default function App() {
     const saved = localStorage.getItem('winner_search_history');
     if (saved) setHistory(JSON.parse(saved));
 
-    // Tentar obter localização para melhorar resultados do Maps
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => console.log("Geolocalização não permitida, usando busca textual.")
+        () => console.log("Geolocalização não permitida.")
       );
     }
   }, []);
@@ -106,27 +105,21 @@ export default function App() {
     setLoading(true);
     setLeads([]);
     setProgress(0);
-    setStatusMessage('Ativando Winner Extractor AI...');
+    setStatusMessage('Inicializando Minerador Ultra-Rápido...');
     saveToHistory(niche, location);
 
+    // Otimizado: Menos lotes, mais dados por lote
     const strategies = isDeepScan ? [
-      "Busca intensiva no Google Maps por novos estabelecimentos.",
-      "Cruzamento de dados com sites de transparência fiscal (CNPJ).",
-      "Varredura de redes sociais em busca de contatos ativos.",
-      "Validação de domínios e sites oficiais.",
-      "Filtragem por empresas com melhores avaliações.",
-      "Consolidação final de leads qualificados."
+      "Mapeamento Global: Google Maps + Redes Sociais + CNPJs",
+      "Varredura Profunda: Diretórios de Transparência e Sites Oficiais"
     ] : [
-      "Busca rápida de empresas e CNPJs.",
-      "Mapeamento geográfico simplificado."
+      "Busca Expressa: Contatos diretos e Localização"
     ];
 
     const allLeadsMap = new Map<string, BusinessLead>();
 
     try {
       for (let i = 0; i < strategies.length; i++) {
-        if (!loading && i > 0 && leads.length === 0) break; // Interrupção se necessário
-
         const currentProgress = Math.round((i / strategies.length) * 100);
         setProgress(currentProgress);
         setStatusMessage(strategies[i]);
@@ -153,29 +146,29 @@ export default function App() {
           setLeads(Array.from(allLeadsMap.values()).sort((a, b) => b.winnerScore - a.winnerScore));
 
           if (i < strategies.length - 1) {
-            const waitTime = 15;
+            const waitTime = 3; // Cooldown reduzido para velocidade máxima
             setCooldown(waitTime);
             for (let s = waitTime; s > 0; s--) {
-              setStatusMessage(`Aguardando API (${s}s)...`);
+              setStatusMessage(`Preparando Lote Final (${s}s)...`);
               await new Promise(r => setTimeout(r, 1000));
             }
           }
         } catch (err: any) {
           console.error(`Erro no lote ${i}:`, err);
           if (err.message.includes('429')) {
-             setStatusMessage('Limite excedido. Pausando 30s...');
-             await new Promise(r => setTimeout(r, 30000));
+             setStatusMessage('Limite atingido. Pausando 15s...');
+             await new Promise(r => setTimeout(r, 15000));
              i--; 
           } else {
-             throw err; // Repassa erros graves (como chave inválida ou erro interno)
+             throw err;
           }
         }
       }
       setProgress(100);
-      setStatusMessage(`Processo concluído: ${allLeadsMap.size} empresas.`);
+      setStatusMessage(`Minerado com sucesso!`);
     } catch (err: any) {
       console.error("Erro geral na busca:", err);
-      setError(`Falha na extração: ${err.message || "Verifique sua conexão e tente novamente."}`);
+      setError(`Falha na extração: ${err.message || "Tente novamente."}`);
     } finally {
       setLoading(false);
       setCooldown(0);
@@ -187,12 +180,12 @@ export default function App() {
       <header className="bg-gray-900 border-b border-gray-800 p-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center font-black text-black shadow-lg shadow-yellow-900/20">W</div>
+            <div className="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center font-black text-black shadow-lg shadow-yellow-900/20 text-xl">W</div>
             <h1 className="text-xl font-black uppercase tracking-tighter">Winner Extractor Gold</h1>
           </div>
           <div className="flex items-center gap-4">
              <label className="flex items-center gap-2 cursor-pointer bg-gray-900/50 px-3 py-1.5 rounded-full border border-gray-800">
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Extração Profunda</span>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Varredura Dupla</span>
                 <input 
                   type="checkbox" 
                   checked={isDeepScan} 
@@ -208,10 +201,10 @@ export default function App() {
       <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full grid grid-cols-1 lg:grid-cols-4 gap-8">
         <aside className="lg:col-span-1 hidden lg:block space-y-4">
           <div className="bg-gray-900 p-5 rounded-xl border border-gray-800 shadow-xl">
-            <h3 className="text-[10px] font-black text-gray-500 uppercase mb-4 tracking-widest">Histórico de Pesquisa</h3>
+            <h3 className="text-[10px] font-black text-gray-500 uppercase mb-4 tracking-widest">Histórico Recente</h3>
             <div className="space-y-3">
               {history.length === 0 ? (
-                <p className="text-xs text-gray-600 italic">Sem pesquisas recentes.</p>
+                <p className="text-xs text-gray-600 italic">Sem buscas.</p>
               ) : (
                 history.map((h, i) => (
                   <button key={i} onClick={() => handleSearch(undefined, h.niche, h.location)} className="w-full text-left p-3 text-xs bg-gray-950/50 hover:bg-gray-800 rounded-lg truncate border border-gray-800 hover:border-yellow-500/30 transition-all">
@@ -230,20 +223,20 @@ export default function App() {
             
             <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-5 gap-4 relative z-10">
               <div className="md:col-span-2">
-                <label className="text-[10px] font-bold text-yellow-500 uppercase ml-1 mb-1 block">Empresa ou Nicho</label>
+                <label className="text-[10px] font-bold text-yellow-500 uppercase ml-1 mb-1 block">O que você busca?</label>
                 <input
                   type="text"
-                  placeholder="Ex: Pizzarias, Contabilidades..."
+                  placeholder="Ex: Clínicas, Restaurantes..."
                   value={searchState.niche}
                   onChange={(e) => setSearchState(s => ({ ...s, niche: e.target.value }))}
                   className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3.5 text-sm focus:border-yellow-500 outline-none transition-all"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="text-[10px] font-bold text-yellow-500 uppercase ml-1 mb-1 block">Cidade / Estado</label>
+                <label className="text-[10px] font-bold text-yellow-500 uppercase ml-1 mb-1 block">Onde?</label>
                 <input
                   type="text"
-                  placeholder="Ex: São Paulo, SP"
+                  placeholder="Cidade ou Estado"
                   value={searchState.location}
                   onChange={(e) => setSearchState(s => ({ ...s, location: e.target.value }))}
                   className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3.5 text-sm focus:border-yellow-500 outline-none transition-all"
@@ -255,7 +248,7 @@ export default function App() {
                   disabled={loading} 
                   className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-black rounded-xl p-3.5 text-sm transition-all shadow-lg shadow-yellow-900/20 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {loading ? 'EXTRAINDO...' : 'BUSCAR LEADS'}
+                  {loading ? 'MINERANDO...' : 'BUSCAR AGORA'}
                 </button>
               </div>
             </form>
@@ -267,19 +260,19 @@ export default function App() {
                   <span className="text-xl font-black text-white">{progress}%</span>
                 </div>
                 <div className="w-full bg-gray-950 h-2 rounded-full border border-gray-800 overflow-hidden">
-                  <div className="bg-yellow-500 h-full transition-all duration-500 shadow-[0_0_10px_rgba(234,179,8,0.3)]" style={{ width: `${progress}%` }}></div>
+                  <div className="bg-yellow-500 h-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
                 </div>
               </div>
             )}
           </section>
 
           {error && (
-            <div className="bg-red-900/20 border border-red-800 p-4 rounded-xl text-red-400 text-xs mb-8 flex items-start gap-3 animate-in fade-in slide-in-from-top-4">
+            <div className="bg-red-900/20 border border-red-800 p-4 rounded-xl text-red-400 text-xs mb-8 flex items-start gap-3">
                <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                <div className="flex flex-col">
-                 <span className="font-bold uppercase tracking-widest text-[10px] mb-1">Erro na Operação</span>
+                 <span className="font-bold uppercase tracking-widest text-[10px] mb-1">Ops! Ocorreu um erro</span>
                  <p>{error}</p>
-                 <button onClick={() => handleSearch()} className="mt-2 text-red-300 hover:text-white underline text-left font-bold">Tentar novamente agora</button>
+                 <button onClick={() => handleSearch()} className="mt-2 text-red-300 hover:text-white underline text-left font-bold">Tentar novamente</button>
                </div>
             </div>
           )}
@@ -288,7 +281,7 @@ export default function App() {
             <div className="space-y-6 animate-in fade-in duration-500">
               <div className="flex justify-between items-center bg-gray-900/40 p-5 rounded-2xl border border-gray-800 backdrop-blur-md">
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Total de Leads Encontrados</span>
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Leads Minerados</span>
                   <span className="text-3xl font-black text-white">{leads.length}</span>
                 </div>
                 <ExportButton leads={leads} niche={searchState.niche} />
@@ -302,11 +295,11 @@ export default function App() {
           
           {!loading && leads.length === 0 && !error && (
             <div className="flex flex-col items-center justify-center py-20 text-center opacity-40">
-              <svg className="w-20 h-20 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-16 h-16 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <h3 className="text-lg font-bold">Aguardando sua próxima busca</h3>
-              <p className="text-sm">Os leads minerados aparecerão aqui.</p>
+              <h3 className="text-lg font-bold">Pronto para a próxima busca?</h3>
+              <p className="text-sm">Os resultados aparecerão aqui instantaneamente.</p>
             </div>
           )}
         </div>
