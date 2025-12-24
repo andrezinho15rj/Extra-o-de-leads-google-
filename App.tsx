@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { searchLeads } from './services/geminiService';
+import { searchLeadsHybrid } from './services/alternativeService';
 import { BusinessLead, SearchState, SearchHistoryItem } from './types';
 import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
@@ -17,6 +17,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
+  const [searchMode, setSearchMode] = useState<'hybrid' | 'alternative'>('hybrid');
 
   useEffect(() => {
     const saved = localStorage.getItem('winner_search_history');
@@ -75,15 +76,28 @@ export default function App() {
     saveToHistory(niche, location);
 
     try {
-      const response = await searchLeads("", niche, location);
-      const parsed = parseLeadsFromText(response.rawText);
-      
-      if (parsed.length === 0) {
-        throw new Error("Nenhum dado formatado encontrado. Tente pesquisar de forma diferente.");
-      }
+      if (searchMode === 'alternative') {
+        const { searchLeadsAlternative } = await import('./services/alternativeService');
+        const response = await searchLeadsAlternative(niche, location);
+        const parsed = parseLeadsFromText(response.rawText);
+        
+        if (parsed.length === 0) {
+          throw new Error("Nenhum dado formatado encontrado. Tente pesquisar de forma diferente.");
+        }
 
-      setLeads(parsed.sort((a, b) => b.winnerScore - a.winnerScore));
-      setStatusMessage('Sucesso!');
+        setLeads(parsed.sort((a, b) => b.winnerScore - a.winnerScore));
+        setStatusMessage('Sucesso! (Busca sem API)');
+      } else {
+        const response = await searchLeadsHybrid("", niche, location);
+        const parsed = parseLeadsFromText(response.rawText);
+        
+        if (parsed.length === 0) {
+          throw new Error("Nenhum dado formatado encontrado. Tente pesquisar de forma diferente.");
+        }
+
+        setLeads(parsed.sort((a, b) => b.winnerScore - a.winnerScore));
+        setStatusMessage('Sucesso!');
+      }
       
     } catch (err: any) {
       console.error("Erro:", err);
@@ -108,6 +122,28 @@ export default function App() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full p-4 lg:p-8">
         <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8 shadow-2xl">
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={() => setSearchMode('hybrid')}
+              className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                searchMode === 'hybrid' 
+                  ? 'bg-yellow-500 text-black' 
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              Busca Híbrida (API + Alternativa)
+            </button>
+            <button
+              onClick={() => setSearchMode('alternative')}
+              className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                searchMode === 'alternative' 
+                  ? 'bg-yellow-500 text-black' 
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              Busca Sem API (Ilimitada)
+            </button>
+          </div>
           <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <input
               type="text"

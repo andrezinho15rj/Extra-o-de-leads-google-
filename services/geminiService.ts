@@ -12,7 +12,7 @@ export const searchLeads = async (
   userLng?: number
 ): Promise<SearchResponse> => {
   
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error("Chave API não configurada.");
 
   const ai = new GoogleGenAI({ apiKey });
@@ -59,12 +59,12 @@ Endereço: [Endereço]
       // Se for erro de cota (429), esperamos e tentamos de novo
       if (lastError.includes("429") || lastError.includes("quota")) {
         console.log(`Cota atingida. Tentativa ${attempt} de 3. Aguardando...`);
-        await delay(attempt * 5000); // Espera 5s, depois 10s...
+        await delay(attempt * 10000); // Espera 10s, depois 20s, depois 30s...
         continue;
       }
       throw error;
     }
   }
 
-  throw new Error(`Limite de uso da API atingido. Aguarde 1 minuto e tente novamente. Detalhes: ${lastError}`);
+  throw new Error(`Limite de cota excedido! A API gratuita do Google tem um limite de buscas por minuto. Por favor, aguarde 60 segundos e tente novamente.`);
 };
