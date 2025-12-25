@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import * as cron from 'node-cron';
 import { SDREngine } from '../sdr/sdrEngine';
 import { logger } from '../utils/logger';
 

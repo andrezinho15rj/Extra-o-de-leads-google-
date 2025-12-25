@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import { pool } from './database/connection';
-import { JobScheduler } from './utils/jobScheduler';
+// import { JobScheduler } from './utils/jobScheduler';
 
 // Importar rotas
 import leadsRoutes from './controllers/leadsController';
@@ -15,7 +15,7 @@ import crmRoutes from './controllers/crmController';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middlewares
 app.use(helmet());
@@ -82,8 +82,8 @@ const server = app.listen(PORT, () => {
   logger.info(`🚀 Servidor rodando na porta ${PORT}`);
   logger.info(`📊 Dashboard: http://localhost:${PORT}/health`);
   
-  // Iniciar jobs automáticos
-  JobScheduler.start();
+// Jobs desabilitados temporariamente para evitar erros
+// JobScheduler.start();
 });
 
 // Graceful shutdown

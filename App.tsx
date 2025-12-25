@@ -4,8 +4,14 @@ import { searchLeadsHybrid } from './services/alternativeService';
 import { BusinessLead, SearchState, SearchHistoryItem } from './types';
 import { LeadCard } from './components/LeadCard';
 import { ExportButton } from './components/ExportButton';
+import { SDRDashboard } from './components/SDRDashboard';
+import { AdvancedExtractor } from './components/AdvancedExtractor';
+import { LeadsManager } from './components/LeadsManager';
+
+type TabType = 'extractor' | 'sdr' | 'leads' | 'advanced';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<TabType>('extractor');
   const [searchState, setSearchState] = useState<SearchState>({
     niche: '',
     location: '',
@@ -109,101 +115,145 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [searchState.niche, searchState.location]);
+  }, [searchState.niche, searchState.location, searchMode]);
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'sdr':
+        return <SDRDashboard />;
+      case 'leads':
+        return <LeadsManager />;
+      case 'advanced':
+        return <AdvancedExtractor />;
+      default:
+        return (
+          <div className="space-y-8">
+            <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl">
+              <div className="mb-4 flex gap-2">
+                <button
+                  onClick={() => setSearchMode('hybrid')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                    searchMode === 'hybrid' 
+                      ? 'bg-yellow-500 text-black' 
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Busca Híbrida (API + Alternativa)
+                </button>
+                <button
+                  onClick={() => setSearchMode('alternative')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                    searchMode === 'alternative' 
+                      ? 'bg-yellow-500 text-black' 
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Busca Sem API (Ilimitada)
+                </button>
+              </div>
+              <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input
+                  type="text"
+                  placeholder="Nicho (ex: Pizzarias)"
+                  value={searchState.niche}
+                  onChange={(e) => setSearchState(s => ({ ...s, niche: e.target.value }))}
+                  className="bg-gray-800 border border-gray-700 rounded-xl p-3 outline-none focus:border-yellow-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Cidade (ex: Curitiba)"
+                  value={searchState.location}
+                  onChange={(e) => setSearchState(s => ({ ...s, location: e.target.value }))}
+                  className="bg-gray-800 border border-gray-700 rounded-xl p-3 outline-none focus:border-yellow-500"
+                />
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-xl p-3 disabled:opacity-50 transition-all uppercase"
+                >
+                  {loading ? 'Processando...' : 'Extrair Leads'}
+                </button>
+              </form>
+
+              {loading && (
+                <div className="mt-6 flex items-center gap-3 text-yellow-500">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="font-bold">{statusMessage}</span>
+                </div>
+              )}
+            </section>
+
+            {error && (
+              <div className="bg-amber-900/40 border border-amber-800 p-4 rounded-xl text-amber-200 text-sm">
+                <p className="font-bold flex items-center gap-2 mb-1">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  Atenção:
+                </p>
+                <p>{error}</p>
+              </div>
+            )}
+
+            {leads.length > 0 ? (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-black">{leads.length} Resultados</h2>
+                  <ExportButton leads={leads} niche={searchState.niche} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {leads.map(l => <LeadCard key={l.id} lead={l} />)}
+                </div>
+              </div>
+            ) : !loading && (
+              <div className="py-20 text-center opacity-30">
+                <p>Os resultados aparecerão aqui.</p>
+              </div>
+            )}
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col font-sans">
       <header className="bg-gray-900 border-b border-gray-800 p-4">
-        <div className="max-w-6xl mx-auto flex items-center gap-3">
-          <div className="bg-yellow-500 text-black px-3 py-1 rounded font-black">W</div>
-          <h1 className="text-xl font-bold uppercase tracking-tight">Winner Extractor Gold</h1>
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-yellow-500 text-black px-3 py-1 rounded font-black">SDR</div>
+            <h1 className="text-xl font-bold uppercase tracking-tight">Sistema SDR Automatizado</h1>
+          </div>
+          
+          {/* Navigation Tabs */}
+          <nav className="flex gap-1">
+            {[
+              { id: 'extractor', label: '🔍 Extrator', desc: 'Busca Rápida' },
+              { id: 'advanced', label: '⚡ Avançado', desc: 'Extração Pro' },
+              { id: 'sdr', label: '🤖 SDR', desc: 'Dashboard' },
+              { id: 'leads', label: '📋 Leads', desc: 'Gestão' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabType)}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-yellow-500 text-black'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                <div className="text-center">
+                  <div>{tab.label}</div>
+                  <div className="text-xs opacity-75">{tab.desc}</div>
+                </div>
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full p-4 lg:p-8">
-        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8 shadow-2xl">
-          <div className="mb-4 flex gap-2">
-            <button
-              onClick={() => setSearchMode('hybrid')}
-              className={`px-4 py-2 rounded-lg font-bold text-sm ${
-                searchMode === 'hybrid' 
-                  ? 'bg-yellow-500 text-black' 
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              Busca Híbrida (API + Alternativa)
-            </button>
-            <button
-              onClick={() => setSearchMode('alternative')}
-              className={`px-4 py-2 rounded-lg font-bold text-sm ${
-                searchMode === 'alternative' 
-                  ? 'bg-yellow-500 text-black' 
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              Busca Sem API (Ilimitada)
-            </button>
-          </div>
-          <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input
-              type="text"
-              placeholder="Nicho (ex: Pizzarias)"
-              value={searchState.niche}
-              onChange={(e) => setSearchState(s => ({ ...s, niche: e.target.value }))}
-              className="bg-gray-800 border border-gray-700 rounded-xl p-3 outline-none focus:border-yellow-500"
-            />
-            <input
-              type="text"
-              placeholder="Cidade (ex: Curitiba)"
-              value={searchState.location}
-              onChange={(e) => setSearchState(s => ({ ...s, location: e.target.value }))}
-              className="bg-gray-800 border border-gray-700 rounded-xl p-3 outline-none focus:border-yellow-500"
-            />
-            <button 
-              type="submit"
-              disabled={loading}
-              className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-xl p-3 disabled:opacity-50 transition-all uppercase"
-            >
-              {loading ? 'Processando...' : 'Extrair Leads'}
-            </button>
-          </form>
-
-          {loading && (
-            <div className="mt-6 flex items-center gap-3 text-yellow-500">
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span className="font-bold">{statusMessage}</span>
-            </div>
-          )}
-        </section>
-
-        {error && (
-          <div className="bg-amber-900/40 border border-amber-800 p-4 rounded-xl text-amber-200 text-sm mb-8">
-            <p className="font-bold flex items-center gap-2 mb-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              Atenção:
-            </p>
-            <p>{error}</p>
-          </div>
-        )}
-
-        {leads.length > 0 ? (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black">{leads.length} Resultados</h2>
-              <ExportButton leads={leads} niche={searchState.niche} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {leads.map(l => <LeadCard key={l.id} lead={l} />)}
-            </div>
-          </div>
-        ) : !loading && (
-          <div className="py-20 text-center opacity-30">
-            <p>Os resultados aparecerão aqui.</p>
-          </div>
-        )}
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-8">
+        {renderTabContent()}
       </main>
     </div>
   );
